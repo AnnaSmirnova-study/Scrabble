@@ -1,0 +1,10 @@
+C:\Users\majah\git\Scrabble\ScrabbleBot\bin\Debug\net6.0\ScrabbleBot.deps.json
+C:\Users\majah\git\Scrabble\ScrabbleBot\bin\Debug\net6.0\ScrabbleBot.dll
+C:\Users\majah\git\Scrabble\ScrabbleBot\bin\Debug\net6.0\ScrabbleBot.pdb
+C:\Users\majah\git\Scrabble\ScrabbleBot\bin\Debug\net6.0\ScrabbleUtil.dll
+C:\Users\majah\git\Scrabble\ScrabbleBot\obj\Debug\net6.0\ScrabbleBot.fsproj.AssemblyReference.cache
+C:\Users\majah\git\Scrabble\ScrabbleBot\obj\Debug\net6.0\ScrabbleBot.AssemblyInfoInputs.cache
+C:\Users\majah\git\Scrabble\ScrabbleBot\obj\Debug\net6.0\ScrabbleBot.AssemblyInfo.fs
+C:\Users\majah\git\Scrabble\ScrabbleBot\obj\Debug\net6.0\ScrabbleBot.fsproj.CopyComplete
+C:\Users\majah\git\Scrabble\ScrabbleBot\obj\Debug\net6.0\ScrabbleBot.dll
+C:\Users\majah\git\Scrabble\ScrabbleBot\obj\Debug\net6.0\ScrabbleBot.pdb

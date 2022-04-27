@@ -1,0 +1,16 @@
+{
+  "Version": 1,
+  "ProjectMap": {
+    "10c48dd9-bc29-4ed3-b6f9-be955ecb8b00": {
+      "ProjectGuid": "10c48dd9-bc29-4ed3-b6f9-be955ecb8b00",
+      "DisplayName": "ScrabbleBot",
+      "ColorIndex": 0
+    },
+    "985c47d8-3c7d-4a45-9f2e-f2fcbf4e62b2": {
+      "ProjectGuid": "985c47d8-3c7d-4a45-9f2e-f2fcbf4e62b2",
+      "DisplayName": "ScrabbleTemplate",
+      "ColorIndex": 1
+    }
+  },
+  "NextColorIndex": 2
+}
