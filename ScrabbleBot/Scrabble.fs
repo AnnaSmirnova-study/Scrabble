@@ -81,7 +81,7 @@ module Scrabble =
                 
                 let used = List.fold (fun acc (_, (id, (_))) -> MultiSet.addSingle id acc) MultiSet.empty ms
                 let hs = MultiSet.subtract st.hand used
-                let b = State.mkState st.board st.dict ((uint32) points) (MultiSet.sum hs a)
+                let b = State.mkState st.board st.dict st.playerNumber (MultiSet.sum hs a)
 
                 let st' = b // This state needs to be updated
                 aux st'

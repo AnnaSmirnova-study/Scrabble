@@ -18,6 +18,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="Dictionary.fs" />
     <Compile Include="MultiSet.fsi" />
     <Compile Include="MultiSet.fs" />
     <Compile Include="FParsecLight.fsi" />
