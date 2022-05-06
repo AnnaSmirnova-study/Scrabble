@@ -1,8 +1,21 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
-    </PropertyGroup>
+	  <ProjectID>ScrabbleBotHalbAsmi</ProjectID>
+	  <RepositoryUrl>https://github.com/jesper-bengtson/Scrabble-FP2022/</RepositoryUrl>
+	  <TargetFramework>net6.0</TargetFramework>
+	  <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+	  <Company>IT University of Copenhagen</Company>
+	  <Version>1.0.0</Version>
+	  <PackageId>ScrabbleBotHalbAsmi</PackageId>
+	  <AssemblyName>ScrabbleBotHalbAsmi</AssemblyName>
+	  <Authors>Your names go here (optional)</Authors>
+	  <Product>ScrabbleFighter</Product>
+	  <Description>
+		  Scrabble Bot for Functional Programming 2022
+		  Group name: &lt;Robin and Anna&gt;
+	  </Description>
+  </PropertyGroup>
 
   <ItemGroup>
     <Compile Include="MultiSet.fsi" />
