@@ -165,7 +165,7 @@ module internal Parser
         squares       : boardFun2
     }
     
-    let parseBoardFun s m : boardFun2 = fun coord -> run stmntParse s |> getSuccess |> fun stm -> stmntToBoardFun stm m coord 
+    let parseBoardFun s m : boardFun2 = run stmntParse s |> getSuccess |> fun stm -> stmntToBoardFun stm m
     
     let mkBoard (bp : boardProg) = 
         let m = Map.map (fun k v -> parseSquareProg v) bp.squares
