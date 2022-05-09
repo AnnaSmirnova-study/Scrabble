@@ -29,7 +29,7 @@ module RegEx =
                 | _ -> failwith "Failed (should never happen)") |>
         Seq.toList
 
- module Print =
+module Print =
     let printHand pieces hand =
         hand |>
         MultiSet.fold (fun _ x i -> forcePrint (sprintf "%d -> (%A, %d)\n" x (Map.find x pieces) i)) ()
@@ -40,22 +40,31 @@ module State =
     // but it could, potentially, keep track of other useful
     // information, such as number of players, player turn, etc.
 
+    // Maybe move this somewhere else
+    type tile = (uint32 * (char * int))
+
+    let tileVal ((_,(_,v)):tile) = v
+    let tileId ((id,_):tile) = id
+    
+
     type state = {
         board         : Parser.board
         dict          : ScrabbleUtil.Dictionary.Dict
         playerNumber  : uint32
         numPlayers    : uint32
         hand          : MultiSet.MultiSet<uint32>
+        tiles         : Map<coord,tile>
         playerTurn    : uint32
     }
 
-    let mkState b d pn np h t = {
+    let mkState b d pn np h tiles pt = {
         board = b; 
         dict = d;  
         playerNumber = pn; 
         numPlayers = np;
         hand = h; 
-        playerTurn = t
+        tiles = tiles;
+        playerTurn = pt;
     }
 
     let board st         = st.board
@@ -71,6 +80,18 @@ module State =
         let t = playerTurn st + 1u
         if t > numPlayers st then 1u
         else t
+
+    // If square is free returns None, if taken returns Some (square,tile)
+    let checkSquareFree coords st = st.board.squares coords |> fun (StateMonad.Success sqr) -> sqr |>
+        Option.map (fun sqr -> Map.tryFind coords st.tiles |> Option.map (fun tile -> (sqr,tile)))
+
+
+
+
+module internal algorithm =
+    let findMove (st: State.state) =
+        st.board.squares
+        None
 
 module Scrabble =
     open System.Threading
@@ -104,22 +125,23 @@ module Scrabble =
                 let usedPcs = List.fold (fun acc (_, (id, (_))) -> MultiSet.addSingle id acc) MultiSet.empty ms
                 let hand = MultiSet.sum (MultiSet.subtract st.hand usedPcs) newPcs
                 
-                debugPrint (sprintf "Made points %d" points)
+                // Add each tile from the move
+                let tiles = List.fold (fun acc (coords,tile) -> Map.add coords tile acc) st.tiles ms
 
                 (* New state *)
-                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers hand (State.updPlayerTurn st) 
+                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers hand tiles (State.updPlayerTurn st)
                 aux st'
 
             | RCM (CMPlayed (pid, ms, points)) ->
                 (* Successful play by other player. Update your state *)
 
                 (* New state *)
-                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers st.hand (State.updPlayerTurn st) 
+                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
                 aux st'
 
             | RCM (CMPlayFailed (pid, ms)) ->
                 (* Failed play. Update your state *)
-                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers st.hand (State.updPlayerTurn st) 
+                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
                 aux st'
 
             | RCM (CMGameOver _) -> ()
@@ -155,5 +177,5 @@ module Scrabble =
                   
         let handSet = List.fold (fun acc (x, k) -> MultiSet.add x k acc) MultiSet.empty hand
 
-        fun () -> playGame cstream tiles (State.mkState board dict playerNumber numPlayers handSet playerTurn)
+        fun () -> playGame cstream tiles (State.mkState board dict playerNumber numPlayers handSet Map.empty playerTurn)
         

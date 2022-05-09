@@ -118,7 +118,16 @@ module internal Eval
     | ITE of bExp * stm * stm (* if-then-else statement *)
     | While of bExp * stm     (* while statement *)
     
-    let rec stmntEval stmnt : SM<unit> = failwith "Not implemented"
+    let rec stmntEval stmnt : SM<unit> = 
+        match stmnt with
+        | Declare s -> declare s
+        | Skip -> ret ()
+        | Ass (s,a) -> arithEval a >>= update s
+        | Seq (stm1,stm2) -> stmntEval stm1 >>>= stmntEval stm2
+        | ITE (b,stm1,stm2) -> push >>>= boolEval b >>= (fun bv -> if bv then stmntEval stm1 else stmntEval stm2) >>>= pop
+        | While (b,stm) -> push >>>= boolEval b >>= (fun bv -> if bv 
+                                                                then stmntEval stm >>>= stmntEval (While (b,stm))
+                                                                else stmntEval Skip) >>>= pop
     
 (* Part 3 (Optional) *)
     
@@ -143,14 +152,20 @@ module internal Eval
     type word = (char * int) list
     type squareFun = word -> int -> int -> Result<int, Error>
     
-    let stmntToSquareFun stm = failwith "Not implemented"
+    let stmntToSquareFun stm : squareFun = fun word pos acc -> 
+           let st = mkState [("_pos_", pos); ("_acc_", acc); ("_result_", 0)] word ["_pos_"; "_acc_"; "_result_"] 
+           let sm = stmntEval stm >>>= arithEval (V "_result_")
+           evalSM st sm
     
     
     type coord = int * int
     
     type boardFun = coord -> Result<squareFun option, Error> 
     
-    let stmntToBoardFun stm m = failwith "Not implemented"
+    let stmntToBoardFun stm m = fun ((x,y):coord) ->
+        let st = mkState [("_x_", x); ("_y_", y); ("_result_", 0)] [] ["_x_"; "_y_"; "_result_"] 
+        let sm = stmntEval stm >>>= arithEval (V "_result_") >>= fun id -> ret (Map.tryFind id m)
+        evalSM st sm
     
     type board = {
         center        : coord
