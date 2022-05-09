@@ -29,7 +29,7 @@ module RegEx =
                 | _ -> failwith "Failed (should never happen)") |>
         Seq.toList
 
- module Print =
+module Print =
 
     let printHand pieces hand =
         hand |>
@@ -72,6 +72,11 @@ module State =
         if t > numPlayers st then 1u
         else t
 
+module internal algorithm =
+    let findMove (st: State.state) =
+        st.board.squares
+        None
+
 module Scrabble =
     open System.Threading
 
@@ -99,6 +104,15 @@ module Scrabble =
                 let newPcs = List.fold (fun acc (x, k) -> MultiSet.add x k acc) MultiSet.empty newPieces
                 let usedPcs = List.fold (fun acc (_, (id, (_))) -> MultiSet.addSingle id acc) MultiSet.empty ms
                 let hand = MultiSet.sum (MultiSet.subtract st.hand usedPcs) newPcs
+                (*
+                let usedSqrs = List.fold (fun (acc: square) (coords, (id, letter)) -> 
+                    Map.add id (st.board.squares) acc 
+                    ) st.board.defaultSquare ms
+
+                let board = {
+                    center = st.board.center;
+                    defaultSquare = 
+                }*)
 
                 (* New state *)
                 let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers hand (State.updPlayerTurn st)
