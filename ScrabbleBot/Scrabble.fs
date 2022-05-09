@@ -30,7 +30,6 @@ module RegEx =
         Seq.toList
 
  module Print =
-
     let printHand pieces hand =
         hand |>
         MultiSet.fold (fun _ x i -> forcePrint (sprintf "%d -> (%A, %d)\n" x (Map.find x pieces) i)) ()
@@ -56,7 +55,7 @@ module State =
         playerNumber = pn; 
         numPlayers = np;
         hand = h; 
-        playerTurn = t;
+        playerTurn = t
     }
 
     let board st         = st.board
@@ -65,6 +64,7 @@ module State =
     let numPlayers st    = st.numPlayers
     let hand st          = st.hand
     let playerTurn st    = st.playerTurn
+    
 
     (* Must be able to handle forfeits if multiplayer is implemented *)
     let updPlayerTurn st =
@@ -82,12 +82,15 @@ module Scrabble =
 
             // remove the force print when you move on from manual input (or when you have learnt the format)
             if st.playerTurn = st.playerNumber then
-                forcePrint "Input move (format '(<x-coordinate> <y-coordinate> <piece id><character><point-value> )*', note the absence of space between the last inputs)\n\n"
+                // forcePrint "Input move (format '(<x-coordinate> <y-coordinate>
+                // <piece id><character><point-value> )*', note the absence of space between the last inputs)\n\n"
+                
                 let input =  System.Console.ReadLine()
                 let move = RegEx.parseMove input
 
                 debugPrint (sprintf "Player %d -> Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
                 send cstream (SMPlay move)
+                
             else ()
 
             let msg = recv cstream
@@ -95,25 +98,28 @@ module Scrabble =
 
             match msg with
             | RCM (CMPlaySuccess(ms, points, newPieces)) ->
+                
                 (* Successful play by you. Update your state (remove old tiles, add the new ones, change turn, etc) *)
                 let newPcs = List.fold (fun acc (x, k) -> MultiSet.add x k acc) MultiSet.empty newPieces
                 let usedPcs = List.fold (fun acc (_, (id, (_))) -> MultiSet.addSingle id acc) MultiSet.empty ms
                 let hand = MultiSet.sum (MultiSet.subtract st.hand usedPcs) newPcs
+                
+                debugPrint (sprintf "Made points %d" points)
 
                 (* New state *)
-                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers hand (State.updPlayerTurn st)
+                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers hand (State.updPlayerTurn st) 
                 aux st'
 
             | RCM (CMPlayed (pid, ms, points)) ->
                 (* Successful play by other player. Update your state *)
 
                 (* New state *)
-                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers st.hand (State.updPlayerTurn st)
+                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers st.hand (State.updPlayerTurn st) 
                 aux st'
 
             | RCM (CMPlayFailed (pid, ms)) ->
                 (* Failed play. Update your state *)
-                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers st.hand (State.updPlayerTurn st)
+                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers st.hand (State.updPlayerTurn st) 
                 aux st'
 
             | RCM (CMGameOver _) -> ()
@@ -128,10 +134,10 @@ module Scrabble =
             (dictf : bool -> Dictionary.Dict) 
             (numPlayers : uint32) 
             (playerNumber : uint32) 
-            (playerTurn  : uint32) 
+            (playerTurn  : uint32)
             (hand : (uint32 * uint32) list)
             (tiles : Map<uint32, tile>)
-            (timeout : uint32 option) 
+            (timeout : uint32 option)
             (cstream : Stream) =
         debugPrint 
             (sprintf "Starting game!
@@ -139,10 +145,12 @@ module Scrabble =
                       player id = %d
                       player turn = %d
                       hand =  %A
-                      timeout = %A\n\n" numPlayers playerNumber playerTurn hand timeout)
+                      timeout = %A \n\n" numPlayers playerNumber playerTurn hand timeout)
 
         //let dict = dictf true // Uncomment if using a gaddag for your dictionary
+        
         let dict = dictf false // Uncomment if using a trie for your dictionary
+        
         let board = Parser.mkBoard boardP
                   
         let handSet = List.fold (fun acc (x, k) -> MultiSet.add x k acc) MultiSet.empty hand

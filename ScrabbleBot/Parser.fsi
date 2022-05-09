@@ -8,9 +8,7 @@ module internal Parser
     type word   = (char * int) list
     type squareFun = word -> int -> int -> Result<int, Error>
     type square = Map<int, squareFun>
-    
-    // bla bla
-    
+
     type boardFun2 = coord -> Result<square option, Error>
         
     type board = {
