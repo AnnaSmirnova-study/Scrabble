@@ -1,5 +1,6 @@
 ﻿namespace ScrabbleFighter
 
+open System.Linq
 open ScrabbleUtil
 open ScrabbleUtil.ServerCommunication
 
@@ -81,17 +82,36 @@ module State =
         if t > numPlayers st then 1u
         else t
 
-    // If square is free returns None, if taken returns Some (square,tile)
+    // If square is free returns None, if taken returns Some (square, tile)
     let checkSquareFree coords st = st.board.squares coords |> fun (StateMonad.Success sqr) -> sqr |>
         Option.map (fun sqr -> Map.tryFind coords st.tiles |> Option.map (fun tile -> (sqr,tile)))
-
-
-
+        
+    // let checkDirection <- maybe we can try make a word and then check is it possible to put it?
+    // or maybe it's easier to just check everytime we want put more letters 
+    
+    // just check is this word exist or not
+    let checkWord word = Dictionary.lookup word
+    
 
 module internal algorithm =
     let findMove (st: State.state) =
         st.board.squares
-        None
+        
+        // I WILL EXPLAIN IT TOMORROW
+        
+        // good question: how we find first square to start building a word?))
+        // maybe we can start from random from last move / (0, 0)
+        
+        //let tiles = List.fold (fun acc (coords,tile) -> Map.add coords tile acc) st.tiles ms
+        
+//        for _ in st.hand do
+//            let answer = "" // acc for word
+//            
+//            // Option.count return zero if the option is None -> square is free 
+//            if Option.count (State.checkSquareFree (0, 0) st) = 0
+//                // first time we always go down, maybe we can make "flag" and change it every move? 0 - go down, 1 - go up
+//                then None
+//            else None
 
 module Scrabble =
     open System.Threading

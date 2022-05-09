@@ -81,6 +81,7 @@ module internal Eval
         | Div (n,m) -> div (evalA n) (evalA m)
         | Mod (n,m) -> modd (evalA n) (evalA m)
         | CharToInt c -> evalC c >>= (fun c -> ret (int c))
+        
     and evalC c =
         match c with 
         | C c -> ret c
@@ -117,6 +118,7 @@ module internal Eval
     | Seq of stm * stm        (* sequential composition *)
     | ITE of bExp * stm * stm (* if-then-else statement *)
     | While of bExp * stm     (* while statement *)
+    
     
     let rec stmntEval stmnt : SM<unit> = 
         match stmnt with
