@@ -84,7 +84,9 @@ module State =
 
     // If square is free returns None, if taken returns Some (square, tile)
     let checkSquareFree coords st = st.board.squares coords |> fun (StateMonad.Success sqr) -> sqr |>
-        Option.map (fun sqr -> Map.tryFind coords st.tiles |> Option.map (fun tile -> (sqr,tile)))
+        function
+        | Some sqr -> Map.tryFind coords st.tiles |> Option.map (fun tile -> (sqr,tile))
+        | None -> None
         
     // let checkDirection <- maybe we can try make a word and then check is it possible to put it?
     // or maybe it's easier to just check everytime we want put more letters 
@@ -112,6 +114,60 @@ module internal algorithm =
 //                // first time we always go down, maybe we can make "flag" and change it every move? 0 - go down, 1 - go up
 //                then None
 //            else None
+
+    type Direction =
+        | Right = 0
+        | Down = 1
+
+    let checkSquaresSideBefore (x,y) dir st =
+        match dir with
+        | Direction.Right -> State.checkSquareFree (x,y-1) st
+        | Direction.Down -> State.checkSquareFree (x-1,y) st
+
+    let checkSquaresSideAfter (x,y) dir st =
+        match dir with
+        | Direction.Right -> State.checkSquareFree (x,y+1) st
+        | Direction.Down -> State.checkSquareFree (x+1,y) st
+
+    let shouldUseSquare coords dir st =
+        match checkSquaresSideBefore coords dir st with
+        | Some _ -> false
+        | None -> 
+            match checkSquaresSideAfter coords dir st with
+            | Some _ -> false
+            | None -> true
+            
+
+
+    
+    (*
+    Mutually recursive function.
+    "find" checks if the given letter exists in the current branch of the trie.
+    If it is the end of the word, the accumulator is returned.
+    If it does not exist, None is returned.
+    If it exists but is not the end of a word, checkEach is called on the rest of the hand.
+
+    "checkEach" calls "find" on each letter in the hand, until a complete word is returned or there are no more letters.
+    *)
+
+    let rec find (c: uint32) dict (hand: uint32 list) acc = 
+        match Dictionary.step (char c) dict with
+        | Some (b, dict') -> 
+            if b then Some (MultiSet.addSingle c acc)
+            else 
+                let acc' = MultiSet.addSingle c acc
+                checkEach dict' hand acc'
+        | None -> None
+
+    and checkEach dict hand acc = 
+        match find hand.Head dict hand.Tail acc with
+        | Some acc' -> Some acc'
+        | None -> 
+            if hand.Tail.IsEmpty 
+            then None 
+            else checkEach dict hand.Tail acc
+
+
 
 module Scrabble =
     open System.Threading
