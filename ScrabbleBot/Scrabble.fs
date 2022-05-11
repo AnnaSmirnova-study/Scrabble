@@ -138,9 +138,8 @@ module internal algorithm =
         | Some (_, (id,(c,v))) -> 
             match Dictionary.step c dict with
             | Some (_, dict') -> 
-                let acc' = ((x,y),(id,(c,v)))::acc
-                if dir = Direction.Right then tryNextLetter (x+1,y) dir dict' hand acc' st
-                else tryNextLetter (x,y+1) dir dict' hand acc' st
+                if dir = Direction.Right then tryNextLetter (x+1,y) dir dict' hand acc st
+                else tryNextLetter (x,y+1) dir dict' hand acc st
             | None -> None
         | None -> 
             if shouldUseSquare (x,y) dir st 
