@@ -145,7 +145,7 @@ module internal algorithm =
             if shouldUseSquare (x,y) dir st 
             then checkEach (x,y) dir dict hand hand acc st
             else None
-    and checkEach coords dir dict hand untried acc st = 
+    and checkEach (x,y) dir dict hand untried acc st = 
         // If all tiles on hand have been tried, return None
         if MultiSet.isEmpty untried then None 
         else
@@ -155,32 +155,34 @@ module internal algorithm =
             match Dictionary.step c dict with
             | Some (b, dict') -> 
                 // If word is complete, return accumulator
-                if b then Some ((coords,tile)::acc)
+                if b then Some (((x,y),tile)::acc)
                 else 
-                    let acc' = (coords,tile)::acc
-                    tryNextLetter coords dir dict' (MultiSet.removeSingle tile hand) acc' st
+                    let acc' = ((x,y),tile)::acc
+                    match dir with
+                    | Direction.Right -> tryNextLetter (x+1,y) dir dict' (MultiSet.removeSingle tile hand) acc' st
+                    | Direction.Down -> tryNextLetter (x,y+1) dir dict' (MultiSet.removeSingle tile hand) acc' st
             | None ->
                 // If letter is not usable, check next tile in hand
-                checkEach coords dir dict hand (MultiSet.removeSingle tile untried) acc st
+                checkEach (x,y) dir dict hand (MultiSet.removeSingle tile untried) acc st
 
         
             
     // Try to create a word starting from given tile
     // If no word is found horizontally, tries vertically
-    let wordFromTile (coords,tile) dict hand st =
+    let wordFromTile ((x,y),tile) dict hand st =
         let acc = []
         let c = tile |> fun (_,(c,_)) -> c
         match Dictionary.step c dict with
-        | Some (b, dict') -> 
-            let result = match checkSquareSideBefore coords Direction.Right st with
+        | Some (_, dict') -> 
+            let result = match checkSquareSideBefore (x,y) Direction.Right st with
                          | Some _ -> None
-                         | None -> tryNextLetter coords Direction.Right dict' hand acc st
+                         | None -> tryNextLetter (x+1,y) Direction.Right dict' hand acc st
             match result with
             | Some acc -> Some acc
             | None -> 
-                match checkSquareSideBefore coords Direction.Down st with
+                match checkSquareSideBefore (x,y) Direction.Down st with
                 | Some _ -> None
-                | None -> tryNextLetter coords Direction.Down dict' hand acc st
+                | None -> tryNextLetter (x,y+1) Direction.Down dict' hand acc st
         | None -> None
 
 
