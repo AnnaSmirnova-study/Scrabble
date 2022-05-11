@@ -169,15 +169,19 @@ module internal algorithm =
     // If no word is found horizontally, tries vertically
     let wordFromTile (coords,tile) dict hand st =
         let acc = []
-        let result = match checkSquareSideBefore coords Direction.Right st with
-                     | Some _ -> None
-                     | None -> tryNextLetter coords Direction.Right dict hand acc st
-        match result with
-        | Some acc -> Some acc
-        | None -> 
-            match checkSquareSideBefore coords Direction.Down st with
-            | Some _ -> None
-            | None -> tryNextLetter coords Direction.Down dict hand acc st
+        let c = tile |> fun (_,(c,_)) -> c
+        match Dictionary.step c dict with
+        | Some (b, dict') -> 
+            let result = match checkSquareSideBefore coords Direction.Right st with
+                         | Some _ -> None
+                         | None -> tryNextLetter coords Direction.Right dict' hand acc st
+            match result with
+            | Some acc -> Some acc
+            | None -> 
+                match checkSquareSideBefore coords Direction.Down st with
+                | Some _ -> None
+                | None -> tryNextLetter coords Direction.Down dict' hand acc st
+        | None -> None
 
 
     let rec findFirstWord coords dict hand acc st =
