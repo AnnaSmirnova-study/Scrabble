@@ -168,7 +168,7 @@ module internal algorithm =
     // Try to create a word starting from given tile
     // If no word is found horizontally, tries vertically
     let wordFromTile (coords,tile) dict hand st =
-        let acc = [(coords, tile)]
+        let acc = []
         let result = match checkSquareSideBefore coords Direction.Right st with
                      | Some _ -> None
                      | None -> tryNextLetter coords Direction.Right dict hand acc st
