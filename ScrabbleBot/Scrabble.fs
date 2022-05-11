@@ -40,10 +40,10 @@ module State =
     // Currently, it only keeps track of your hand, your player numer, your board, and your dictionary,
     // but it could, potentially, keep track of other useful
     // information, such as number of players, player turn, etc.
-
-    // Maybe move this somewhere else
+    
+    
+    // We make new type to keep it right for sending move to server
     type idTile = (uint32 * (char * int))
-
     let tileVal ((_,(_,v)):idTile) = v
     let tileId ((id,_):idTile) = id
     
@@ -51,7 +51,7 @@ module State =
     type state = {
         board         : Parser.board
         dict          : ScrabbleUtil.Dictionary.Dict
-        tileLookup    : Map<uint32,tile>
+        tileLookup    : Map<uint32, tile>
         playerNumber  : uint32
         numPlayers    : uint32
         hand          : MultiSet.MultiSet<uint32>
@@ -90,40 +90,43 @@ module State =
         function
         | Some sqr -> Map.tryFind coords st.tiles |> Option.map (fun tile -> (sqr,tile))
         | None -> None
-        
-    // let checkDirection <- maybe we can try make a word and then check is it possible to put it?
-    // or maybe it's easier to just check everytime we want put more letters 
     
     // just check is this word exist or not
     let checkWord word = Dictionary.lookup word
 
+    // Find tail by it's ID
     let tileByID id (st: state) = Map.tryFind id st.tileLookup
 
+    // Turn hand from Multiset<uint32> to useful 
     let handToTiles hand st =
         MultiSet.fold (fun acc id count -> 
             match tileByID id st with
-            | Some t -> MultiSet.add (id,t.MinimumElement) count acc
+            | Some t -> MultiSet.add (id, t.MinimumElement) count acc
             | None -> acc
             ) MultiSet.empty hand
     
 
 module internal algorithm =
     
-
+    // What way we will go
     type Direction =
         | Right = 0
         | Down = 1
 
-    let checkSquareSideBefore (x,y) dir st =
+    // If we go Down we check square on left side of considered square, if Right - above 
+    let checkSquareSideBefore (x, y) dir st =
         match dir with
-        | Direction.Right -> State.checkSquareFree (x,y-1) st
-        | Direction.Down -> State.checkSquareFree (x-1,y) st
+        | Direction.Right -> State.checkSquareFree (x, y-1) st
+        | Direction.Down -> State.checkSquareFree (x-1, y) st
 
+    // If we go Down we check square on right side of considered square, if Right - under
     let checkSquareSideAfter (x,y) dir st =
         match dir with
-        | Direction.Right -> State.checkSquareFree (x,y+1) st
-        | Direction.Down -> State.checkSquareFree (x+1,y) st
+        | Direction.Right -> State.checkSquareFree (x, y+1) st
+        | Direction.Down -> State.checkSquareFree (x+1, y) st
 
+    // Connect two previous functions and check side squares of considered square
+    // Here we have true if everything is free and we can put letter to considered square, and false otherwise
     let shouldUseSquare coords dir st =
         match checkSquareSideBefore coords dir st with
         | Some _ -> false
@@ -132,40 +135,50 @@ module internal algorithm =
             | Some _ -> false
             | None -> true
 
-
-    let rec tryNextLetter (x,y) dir dict hand acc st =
-        match State.checkSquareFree (x,y) st with
-        | Some (_, (id,(c,v))) -> 
+    // We have coordinates of considered square and want to find next letter in word
+    let rec tryNextLetter (x, y) dir dict hand acc st =
+        // First we check is this square free
+        match State.checkSquareFree (x, y) st with
+        // if it's not and we have tail there
+        | Some (_, (id,(c, v))) ->
+            // Look is this letter a beginning of any word in dict
             match Dictionary.step c dict with
-            | Some (_, dict') -> 
-                if dir = Direction.Right then tryNextLetter (x+1,y) dir dict' hand acc st
-                else tryNextLetter (x,y+1) dir dict' hand acc st
+            | Some (_, dict') ->
+                // If yes, we call function again with new dict and coord, depends on our direction 
+                if dir = Direction.Right then tryNextLetter (x+1, y) dir dict' hand acc st
+                else tryNextLetter (x, y+1) dir dict' hand acc st
+            // if it's not a word, we won't continue
             | None -> None
-        | None -> 
-            if shouldUseSquare (x,y) dir st 
-            then checkEach (x,y) dir dict hand hand acc st
+        // If square is free
+        | None ->
+            // We check squares around, to be sure we can make move
+            if shouldUseSquare (x, y) dir st
+            // Then try every letter from our hand
+            then checkEach (x, y) dir dict hand hand acc st
             else None
-    and checkEach (x,y) dir dict hand untried acc st = 
+    // Here we try to play by every letter from hand
+    and checkEach (x, y) dir dict hand untried acc st = 
         // If all tiles on hand have been tried, return None
         if MultiSet.isEmpty untried then None 
         else
+            // We keep first tail from unused 
             let tile = (MultiSet.toList untried).Head
-            let c = tile |> fun (_,(c,_)) -> c
+            let c = tile |> fun (_,(c,_)) -> c // Keep only value
             // Check if letter is usable in dictionary
             match Dictionary.step c dict with
             | Some (b, dict') -> 
-                // If word is complete, return accumulator
+                // If word is complete, return accumulator with final tail
                 if b then Some (((x,y),tile)::acc)
-                else 
+                else
+                    // If it's not complete but word it's still possible put it in acc and continue
                     let acc' = ((x,y),tile)::acc
                     match dir with
-                    | Direction.Right -> tryNextLetter (x+1,y) dir dict' (MultiSet.removeSingle tile hand) acc' st
-                    | Direction.Down -> tryNextLetter (x,y+1) dir dict' (MultiSet.removeSingle tile hand) acc' st
+                    | Direction.Right -> tryNextLetter (x+1, y) dir dict' (MultiSet.removeSingle tile hand) acc' st
+                    | Direction.Down -> tryNextLetter (x, y+1) dir dict' (MultiSet.removeSingle tile hand) acc' st
             | None ->
                 // If letter is not usable, check next tile in hand
                 checkEach (x,y) dir dict hand (MultiSet.removeSingle tile untried) acc st
-
-        
+  
             
     // Try to create a word starting from given tile
     // If no word is found horizontally, tries vertically
