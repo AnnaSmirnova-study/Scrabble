@@ -42,25 +42,27 @@ module State =
     // information, such as number of players, player turn, etc.
 
     // Maybe move this somewhere else
-    type tile = (uint32 * (char * int))
+    type idTile = (uint32 * (char * int))
 
-    let tileVal ((_,(_,v)):tile) = v
-    let tileId ((id,_):tile) = id
+    let tileVal ((_,(_,v)):idTile) = v
+    let tileId ((id,_):idTile) = id
     
 
     type state = {
         board         : Parser.board
         dict          : ScrabbleUtil.Dictionary.Dict
+        tileLookup    : Map<uint32,tile>
         playerNumber  : uint32
         numPlayers    : uint32
         hand          : MultiSet.MultiSet<uint32>
-        tiles         : Map<coord,tile>
+        tiles         : Map<coord,idTile>
         playerTurn    : uint32
     }
 
-    let mkState b d pn np h tiles pt = {
+    let mkState b d tileLU pn np h tiles pt = {
         board = b; 
         dict = d;  
+        tileLookup = tileLU;
         playerNumber = pn; 
         numPlayers = np;
         hand = h; 
@@ -70,6 +72,7 @@ module State =
 
     let board st         = st.board
     let dict st          = st.dict
+    let tileLookup st    = st.tileLookup
     let playerNumber st  = st.playerNumber
     let numPlayers st    = st.numPlayers
     let hand st          = st.hand
@@ -93,79 +96,108 @@ module State =
     
     // just check is this word exist or not
     let checkWord word = Dictionary.lookup word
+
+    let tileByID id (st: state) = Map.tryFind id st.tileLookup
+
+    let handToTiles hand st =
+        MultiSet.fold (fun acc id count -> 
+            match tileByID id st with
+            | Some t -> MultiSet.add (id,t.MinimumElement) count acc
+            | None -> acc
+            ) MultiSet.empty hand
     
 
 module internal algorithm =
-    let findMove (st: State.state) =
-        st.board.squares
-        
-        // I WILL EXPLAIN IT TOMORROW
-        
-        // good question: how we find first square to start building a word?))
-        // maybe we can start from random from last move / (0, 0)
-        
-        //let tiles = List.fold (fun acc (coords,tile) -> Map.add coords tile acc) st.tiles ms
-        
-//        for _ in st.hand do
-//            let answer = "" // acc for word
-//            
-//            // Option.count return zero if the option is None -> square is free 
-//            if Option.count (State.checkSquareFree (0, 0) st) = 0
-//                // first time we always go down, maybe we can make "flag" and change it every move? 0 - go down, 1 - go up
-//                then None
-//            else None
+    
 
     type Direction =
         | Right = 0
         | Down = 1
 
-    let checkSquaresSideBefore (x,y) dir st =
+    let checkSquareSideBefore (x,y) dir st =
         match dir with
         | Direction.Right -> State.checkSquareFree (x,y-1) st
         | Direction.Down -> State.checkSquareFree (x-1,y) st
 
-    let checkSquaresSideAfter (x,y) dir st =
+    let checkSquareSideAfter (x,y) dir st =
         match dir with
         | Direction.Right -> State.checkSquareFree (x,y+1) st
         | Direction.Down -> State.checkSquareFree (x+1,y) st
 
     let shouldUseSquare coords dir st =
-        match checkSquaresSideBefore coords dir st with
+        match checkSquareSideBefore coords dir st with
         | Some _ -> false
         | None -> 
-            match checkSquaresSideAfter coords dir st with
+            match checkSquareSideAfter coords dir st with
             | Some _ -> false
             | None -> true
-            
 
 
-    
-    (*
-    Mutually recursive function.
-    "find" checks if the given letter exists in the current branch of the trie.
-    If it is the end of the word, the accumulator is returned.
-    If it does not exist, None is returned.
-    If it exists but is not the end of a word, checkEach is called on the rest of the hand.
-
-    "checkEach" calls "find" on each letter in the hand, until a complete word is returned or there are no more letters.
-    *)
-
-    let rec find (c: uint32) dict (hand: uint32 list) acc = 
-        match Dictionary.step (char c) dict with
-        | Some (b, dict') -> 
-            if b then Some (MultiSet.addSingle c acc)
-            else 
-                let acc' = MultiSet.addSingle c acc
-                checkEach dict' hand acc'
-        | None -> None
-
-    and checkEach dict hand acc = 
-        match find hand.Head dict hand.Tail acc with
-        | Some acc' -> Some acc'
+    let rec tryNextLetter (x,y) dir dict hand acc st =
+        match State.checkSquareFree (x,y) st with
+        | Some (_, (id,(c,v))) -> 
+            match Dictionary.step c dict with
+            | Some (_, dict') -> 
+                let acc' = ((x,y),(id,(c,v)))::acc
+                if dir = Direction.Right then tryNextLetter (x+1,y) dir dict' hand acc' st
+                else tryNextLetter (x,y+1) dir dict' hand acc' st
+            | None -> None
         | None -> 
-            if hand.Tail.IsEmpty 
-            then None 
-            else checkEach dict hand.Tail acc
+            if shouldUseSquare (x,y) dir st 
+            then checkEach (x,y) dir dict hand hand acc st
+            else None
+    and checkEach coords dir dict hand untried acc st = 
+        // If all tiles on hand have been tried, return None
+        if MultiSet.isEmpty untried then None 
+        else
+            let tile = (MultiSet.toList untried).Head
+            let c = tile |> fun (_,(c,_)) -> c
+            // Check if letter is usable in dictionary
+            match Dictionary.step c dict with
+            | Some (b, dict') -> 
+                // If word is complete, return accumulator
+                if b then Some ((coords,tile)::acc)
+                else 
+                    let acc' = (coords,tile)::acc
+                    tryNextLetter coords dir dict' (MultiSet.removeSingle tile hand) acc' st
+            | None ->
+                // If letter is not usable, check next tile in hand
+                checkEach coords dir dict hand (MultiSet.removeSingle tile untried) acc st
+
+        
+            
+    // Try to create a word starting from given tile
+    // If no word is found horizontally, tries vertically
+    let wordFromTile (coords,tile) dict hand st =
+        let acc = [(coords, tile)]
+        let result = match checkSquareSideBefore coords Direction.Right st with
+                     | Some _ -> None
+                     | None -> tryNextLetter coords Direction.Right dict hand acc st
+        match result with
+        | Some acc -> Some acc
+        | None -> 
+            match checkSquareSideBefore coords Direction.Down st with
+            | Some _ -> None
+            | None -> tryNextLetter coords Direction.Down dict hand acc st
+
+
+    let rec findFirstWord coords dict hand acc st =
+        match checkEachFW coords dict hand hand acc st with
+        | Some acc' -> Some acc'
+        | None -> None
+    and checkEachFW (x,y) dict hand untried acc st = 
+           if MultiSet.isEmpty untried then None 
+           else
+               let tile = (MultiSet.toList untried).Head
+               let c = tile |> fun (_,(c,_)) -> c
+               match Dictionary.step c dict with
+               | Some (b, dict') -> 
+                   if b then Some (((x,y),tile)::acc)
+                   else 
+                       let acc' = ((x,y),tile)::acc
+                       findFirstWord (x,y+1) dict' (MultiSet.removeSingle tile hand) acc' st
+               | None ->
+                   checkEachFW (x,y) dict hand (MultiSet.removeSingle tile untried) acc st
 
 
 
@@ -182,11 +214,29 @@ module Scrabble =
                 // forcePrint "Input move (format '(<x-coordinate> <y-coordinate>
                 // <piece id><character><point-value> )*', note the absence of space between the last inputs)\n\n"
                 
-                let input =  System.Console.ReadLine()
-                let move = RegEx.parseMove input
-
-                debugPrint (sprintf "Player %d -> Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
-                send cstream (SMPlay move)
+                //let input =  System.Console.ReadLine()
+                //let move = RegEx.parseMove input
+                let hand' = State.handToTiles st.hand st
+                if st.tiles.IsEmpty 
+                then 
+                    match algorithm.findFirstWord (0,0) st.dict hand' [] st with
+                    | Some move -> 
+                        debugPrint (sprintf "Player %d -> Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
+                        send cstream (SMPlay move)
+                    | None -> 
+                        send cstream SMPass
+                else 
+                    let l = Map.toList st.tiles
+                    let rec tryTile (untried: (coord*State.idTile) list) =
+                        match algorithm.wordFromTile untried.Head st.dict hand' st with
+                        | Some move -> 
+                            debugPrint (sprintf "Player %d -> Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
+                            send cstream (SMPlay move)
+                        | None -> 
+                            if List.isEmpty untried then send cstream SMPass
+                            else tryTile untried.Tail
+                    tryTile l
+                
                 
             else ()
 
@@ -205,19 +255,19 @@ module Scrabble =
                 let tiles = List.fold (fun acc (coords,tile) -> Map.add coords tile acc) st.tiles ms
 
                 (* New state *)
-                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers hand tiles (State.updPlayerTurn st)
+                let st' = State.mkState st.board st.dict st.tileLookup st.playerNumber st.numPlayers hand tiles (State.updPlayerTurn st)
                 aux st'
 
             | RCM (CMPlayed (pid, ms, points)) ->
                 (* Successful play by other player. Update your state *)
 
                 (* New state *)
-                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
+                let st' = State.mkState st.board st.dict st.tileLookup st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
                 aux st'
 
             | RCM (CMPlayFailed (pid, ms)) ->
                 (* Failed play. Update your state *)
-                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
+                let st' = State.mkState st.board st.dict st.tileLookup st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
                 aux st'
 
             | RCM (CMGameOver _) -> ()
@@ -253,5 +303,5 @@ module Scrabble =
                   
         let handSet = List.fold (fun acc (x, k) -> MultiSet.add x k acc) MultiSet.empty hand
 
-        fun () -> playGame cstream tiles (State.mkState board dict playerNumber numPlayers handSet Map.empty playerTurn)
+        fun () -> playGame cstream tiles (State.mkState board dict tiles playerNumber numPlayers handSet Map.empty playerTurn)
         
