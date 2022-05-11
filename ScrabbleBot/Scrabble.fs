@@ -209,38 +209,36 @@ module Scrabble =
             Print.printHand pieces (State.hand st)
 
             // remove the force print when you move on from manual input (or when you have learnt the format)
-            if st.playerTurn = st.playerNumber then
+            //if st.playerTurn = st.playerNumber then
                 // forcePrint "Input move (format '(<x-coordinate> <y-coordinate>
                 // <piece id><character><point-value> )*', note the absence of space between the last inputs)\n\n"
                 
                 //let input =  System.Console.ReadLine()
                 //let move = RegEx.parseMove input
-                let hand' = State.handToTiles st.hand st
-                if st.tiles.IsEmpty 
-                then 
-                    match algorithm.findFirstWord (0,0) st.dict hand' [] st with
-                    | Some move -> 
-                        debugPrint (sprintf "Player %d -> Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
-                        send cstream (SMPlay move)
-                    | None -> 
-                        send cstream SMPass
-                else 
-                    let l = Map.toList st.tiles
-                    let rec tryTile (untried: (coord*State.idTile) list) =
-                        match algorithm.wordFromTile untried.Head st.dict hand' st with
-                        | Some move -> 
-                            debugPrint (sprintf "Player %d -> Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
-                            send cstream (SMPlay move)
-                        | None -> 
-                            if List.isEmpty untried then send cstream SMPass
-                            else tryTile untried.Tail
-                    tryTile l
+            let hand' = State.handToTiles st.hand st
+            let m = match Map.isEmpty st.tiles with
+                    | true -> algorithm.findFirstWord (0,0) st.dict hand' [] st
+                    | false -> 
+                        let l = Map.toList st.tiles
+                        let rec tryTile (untried: (coord*State.idTile) list) =
+                            match algorithm.wordFromTile untried.Head st.dict hand' st with
+                            | Some move -> Some move
+                            | None -> 
+                                if List.isEmpty untried then None
+                                else tryTile untried.Tail
+                        tryTile l
                 
-                
-            else ()
+            //else ()
+            match m with
+            | Some move -> 
+                debugPrint (sprintf "Player %d -> Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
+                send cstream (SMPlay move)
+            | None -> send cstream SMPass
 
             let msg = recv cstream
-            //debugPrint (sprintf "Player %d <- Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
+            match m with
+            | Some move -> debugPrint (sprintf "Player %d <- Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
+            | None -> ()
 
             match msg with
             | RCM (CMPlaySuccess(ms, points, newPieces)) ->
