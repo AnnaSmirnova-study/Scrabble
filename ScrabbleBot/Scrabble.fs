@@ -178,17 +178,21 @@ module internal algorithm =
                                         match mv with
                                         | Some (points',_) -> if points > points' then Some (points,move) else mv
                                         | None -> Some (points,move)
-                                    // Rechecks if word is in dictionary before returning it
-                                    | None -> if b && State.checkWord word st.dict then Some (calcPoints (word@[tileVal tile]) (addSF pos sqr sqrs) |> function 
-                                                                                                                                                       | StateMonad.Success i -> i
-                                                                                                                                                       | _ -> 0
-                                                                                                                                                       , ((coords,tile)::move)) else mv
+                                    | None -> 
+                                        let getPoints = calcPoints (word@[tileVal tile]) (addSF pos sqr sqrs) |> function 
+                                                                                                              | StateMonad.Success i -> i
+                                                                                                              | _ -> 0
+                                        // Rechecks if word is in dictionary before returning it.
+                                        // If the square after the last letter is not free, don't use the move.
+                                        if b && State.checkWord word st.dict && (State.checkSquareFree (next coords) st).IsNone 
+                                        then Some (getPoints, ((coords,tile)::move)) 
+                                        else mv
                                 | None -> mv
                                 ) None hand
                         else None
                 else None
 
-            tryNextLetter coords dict hand 1 word [] (addSF 0 (State.getSquare coords st |> fun (Some sqr) -> sqr) Map.empty)
+            tryNextLetter (next coords) dict hand 1 word [] (addSF 0 (State.getSquare coords st |> fun (Some sqr) -> sqr) Map.empty)
 
 
                 
@@ -197,11 +201,11 @@ module internal algorithm =
         let startWord (coords,tile) dict =
             // Check if square before is free before starting word
             let tryRight dict' = 
-                if State.checkSquareValid coords st && (State.checkSquareFree (left coords) st).IsSome 
+                if State.checkSquareValid coords st && (State.checkSquareFree (left coords) st).IsNone 
                 then tryDirection coords right shouldUseCheckV dict' [tileVal tile]
                 else None
             let tryDown dict' = 
-                if State.checkSquareValid coords st && (State.checkSquareFree (left coords) st).IsSome 
+                if State.checkSquareValid coords st && (State.checkSquareFree (up coords) st).IsNone 
                 then tryDirection coords down shouldUseCheckH dict' [tileVal tile]
                 else None
 
