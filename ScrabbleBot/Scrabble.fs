@@ -112,15 +112,13 @@ module internal algorithm =
     let tilePoints = fun (_,(_,p)) -> p
     let tileVal = fun (_,t) -> t
 
-    type Direction =
-        | Right = 0
-        | Down = 1
-
+    // Functions to update coordinates
     let right = fun (x,y) -> (x+1,y)
     let left = fun (x,y) -> (x-1,y)
     let up = fun (x,y) -> (x,y-1)
     let down = fun (x,y) -> (x,y+1)
 
+    // Calculate the points in the complete word from the squareFuns
     let calcPoints word sqrs = 
         let f = List.sortBy (fun (_,(k,_)) -> k) (Map.toList sqrs)
         List.fold (fun acc (pos,(_,sf)) -> 
@@ -128,21 +126,35 @@ module internal algorithm =
             | StateMonad.Success acc -> sf word pos acc
             | _ -> sf word pos 0) (StateMonad.Success 0) f
 
+    // Add squareFun from a given square to the map of squareFuns
     let addSF pos (sqr:Parser.square) sqrs = Map.fold (fun acc k v -> Map.add pos (k,v) acc) sqrs sqr
 
     
 
-    let find (coords,tile) dict hand st =
+    let findWord tiles dict hand st =
 
+        // Check squares to left and right
         let shouldUseCheckH = fun coords -> 
             (State.checkSquareFree (left coords) st).IsNone && (State.checkSquareFree (right coords) st).IsNone
-
+        // Check squares above and below
         let shouldUseCheckV = fun coords -> 
             (State.checkSquareFree (up coords) st).IsNone && (State.checkSquareFree (down coords) st).IsNone
 
+        (*
+            Try finding a word in the given direction.
+            next is the function for updating the coordinates
+            sidesCheck is the function for checking the squares next to the coordinates
+        *)
+        let tryDirection coords next sidesCheck dict word =
+            (*
+                Recursive function to try next letter in the word.
+                Uses fold on the hand to try each letter.
 
-        let tryDirection dirCheck next sidesCheck dict =
-
+                -- Used for points calculation
+                pos is the char position in the word.
+                word is the list of tiles in the word.
+                sqrs is a map with the squareFuns according to the pos.
+            *)
             let rec tryNextLetter coords dict hand pos word move sqrs  =
                 let sqrOption = State.getSquare coords st
                 let sqr = sqrOption |> fun (Some sqr) -> sqr
@@ -151,9 +163,11 @@ module internal algorithm =
                     match State.checkSquareFree coords st with
                     | Some (_, (id,(c,v))) -> 
                         match Dictionary.step c dict with
+                        // Adds the existing tile to the word and the sqrs, but not to the move
                         | Some (_, dict') -> tryNextLetter (next coords) dict' hand (pos+1) (word@[(c,v)]) move (addSF pos sqr sqrs)
                         | None -> None
                     | None -> 
+                        // Checks if the square exists on the board before trying any tiles
                         if not (MultiSet.isEmpty hand) && sqrOption.IsSome && sidesCheck coords
                         then 
                             MultiSet.fold (fun mv tile n -> 
@@ -164,6 +178,7 @@ module internal algorithm =
                                         match mv with
                                         | Some (points',_) -> if points > points' then Some (points,move) else mv
                                         | None -> Some (points,move)
+                                    // Rechecks if word is in dictionary before returning it
                                     | None -> if b && State.checkWord word st.dict then Some (calcPoints (word@[tileVal tile]) (addSF pos sqr sqrs) |> function 
                                                                                                                                                        | StateMonad.Success i -> i
                                                                                                                                                        | _ -> 0
@@ -173,31 +188,39 @@ module internal algorithm =
                         else None
                 else None
 
-
-            if State.checkSquareValid coords st && (State.checkSquareFree (dirCheck coords) st).IsSome then None
-            else tryNextLetter coords dict hand 1 [tileVal tile] [] (addSF 0 (State.getSquare coords st |> fun (Some sqr) -> sqr) Map.empty)
+            tryNextLetter coords dict hand 1 word [] (addSF 0 (State.getSquare coords st |> fun (Some sqr) -> sqr) Map.empty)
 
 
                 
-            
+        // Start finding a word from a given tile, compare best word horizontally and vertically to return the best
+        // First try horizontal, then try vertical
+        let startWord (coords,tile) dict =
+            // Check if square before is free before starting word
+            let tryRight dict' = 
+                if State.checkSquareValid coords st && (State.checkSquareFree (left coords) st).IsSome 
+                then tryDirection coords right shouldUseCheckV dict' [tileVal tile]
+                else None
+            let tryDown dict' = 
+                if State.checkSquareValid coords st && (State.checkSquareFree (left coords) st).IsSome 
+                then tryDirection coords down shouldUseCheckH dict' [tileVal tile]
+                else None
 
-        match Dictionary.step (tileChar tile) dict with
-                | Some (_, dict') -> 
-                    match tryDirection left right shouldUseCheckV dict' with
-                    | Some (points,move) -> 
-                        match tryDirection up down shouldUseCheckH dict' with
-                        | Some (points',move') -> if points > points' then Some (points,move) else Some (points',move')
-                        | None -> Some (points,move)
-                    | None -> tryDirection up down shouldUseCheckH dict'
-                | None -> None
+            match Dictionary.step (tileChar tile) dict with
+                    | Some (_, dict') -> 
+                        match tryRight dict' with
+                        | Some (points,move) -> 
+                            match tryDown dict' with
+                            | Some (points',move') -> if points > points' then Some (points,move) else Some (points',move')
+                            | None -> Some (points,move)
+                        | None -> tryDown dict'
+                    | None -> None
 
 
-
-    let findWord tiles dict hand st =
+        // For each tile on the board, find the move with the highest points and compare to return the best
         if Map.isEmpty tiles then None
         else 
             Map.fold (fun mv coords tile ->
-                match find (coords,tile) dict hand st with
+                match startWord (coords,tile) dict with
                 | Some (points,move) -> 
                     match mv with
                     | Some (points',_) -> if points > points' then Some (points,move) else mv
@@ -207,10 +230,12 @@ module internal algorithm =
 
 
 
+    // Finds a word only from the hand
     let rec findFirstWord coords dict hand pos word move sqrs st =
         let sqrOption = State.getSquare coords st
         let sqr = sqrOption |> fun (Some sqr) -> sqr
 
+        // Checks if square exists before trying letters
         if MultiSet.isEmpty hand || sqrOption.IsNone then None
         else
             MultiSet.fold (fun mv tile n ->
@@ -244,6 +269,7 @@ module Scrabble =
                 // forcePrint "Input move (format '(<x-coordinate> <y-coordinate>
                 // <piece id><character><point-value> )*', note the absence of space between the last inputs)\n\n"
                 
+            // Waits for input before startung turn (just press enter)
             let input =  System.Console.ReadLine()
                 //let move = RegEx.parseMove input
 
