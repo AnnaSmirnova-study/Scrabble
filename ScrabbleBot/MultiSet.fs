@@ -6,6 +6,7 @@ module internal MultiSet
     let empty = M Map.empty
     let isEmpty (M s) = s.IsEmpty
     let size (M s) = Map.fold (fun st k v -> st + v) 0u s
+    let keys (M s) = List.ofSeq (Map.keys s)
     
     let contains a (M s) = 
         match s.TryFind a with

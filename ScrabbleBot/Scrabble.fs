@@ -51,7 +51,6 @@ module State =
     type state = {
         board         : Parser.board
         dict          : ScrabbleUtil.Dictionary.Dict
-        tileLookup    : Map<uint32,tile>
         playerNumber  : uint32
         numPlayers    : uint32
         hand          : MultiSet.MultiSet<uint32>
@@ -59,10 +58,9 @@ module State =
         playerTurn    : uint32
     }
 
-    let mkState b d tileLU pn np h tiles pt = {
+    let mkState b d pn np h tiles pt = {
         board = b; 
         dict = d;  
-        tileLookup = tileLU;
         playerNumber = pn; 
         numPlayers = np;
         hand = h; 
@@ -72,7 +70,6 @@ module State =
 
     let board st         = st.board
     let dict st          = st.dict
-    let tileLookup st    = st.tileLookup
     let playerNumber st  = st.playerNumber
     let numPlayers st    = st.numPlayers
     let hand st          = st.hand
@@ -85,124 +82,151 @@ module State =
         if t > numPlayers st then 1u
         else t
 
+    let getSquare coords st = st.board.squares coords |> function 
+                                                         | StateMonad.Success sqr -> sqr
+                                                         | _ -> None
+
+    let checkSquareValid coords st =  st.board.squares coords |> function 
+        | StateMonad.Success _ -> true
+        | StateMonad.Failure _ -> false
+
     // If square is free returns None, if taken returns Some (square, tile)
-    let checkSquareFree coords st = st.board.squares coords |> fun (StateMonad.Success sqr) -> sqr |>
-        function
-        | Some sqr -> Map.tryFind coords st.tiles |> Option.map (fun tile -> (sqr,tile))
-        | None -> None
+    let checkSquareFree coords st = 
+        st.board.squares coords |> 
+        fun (StateMonad.Success sqr) -> sqr |> function
+                                               | Some sqr -> Map.tryFind coords st.tiles |> Option.map (fun tile -> (sqr,tile))
+                                               | None -> None
         
     // let checkDirection <- maybe we can try make a word and then check is it possible to put it?
     // or maybe it's easier to just check everytime we want put more letters 
     
     // just check is this word exist or not
-    let checkWord word = Dictionary.lookup word
+    let checkWord word = Dictionary.lookup (List.fold (fun acc (c,v) -> acc + c.ToString()) "" word)
 
-    let tileByID id (st: state) = Map.tryFind id st.tileLookup
-
-    let handToTiles hand st =
-        MultiSet.fold (fun acc id count -> 
-            match tileByID id st with
-            | Some t -> MultiSet.add (id,t.MinimumElement) count acc
-            | None -> acc
-            ) MultiSet.empty hand
+    
     
 
 module internal algorithm =
     
+    let tileChar = fun (_,(c,_)) -> c
+    let tilePoints = fun (_,(_,p)) -> p
+    let tileVal = fun (_,t) -> t
 
     type Direction =
         | Right = 0
         | Down = 1
 
-    let checkSquareSideBefore (x,y) dir st =
-        match dir with
-        | Direction.Right -> State.checkSquareFree (x,y-1) st
-        | Direction.Down -> State.checkSquareFree (x-1,y) st
+    let right = fun (x,y) -> (x+1,y)
+    let left = fun (x,y) -> (x-1,y)
+    let up = fun (x,y) -> (x,y-1)
+    let down = fun (x,y) -> (x,y+1)
 
-    let checkSquareSideAfter (x,y) dir st =
-        match dir with
-        | Direction.Right -> State.checkSquareFree (x,y+1) st
-        | Direction.Down -> State.checkSquareFree (x+1,y) st
+    let calcPoints word sqrs = 
+        let f = List.sortBy (fun (_,(k,_)) -> k) (Map.toList sqrs)
+        List.fold (fun acc (pos,(_,sf)) -> 
+            match acc with
+            | StateMonad.Success acc -> sf word pos acc
+            | _ -> sf word pos 0) (StateMonad.Success 0) f
 
-    let shouldUseSquare coords dir st =
-        match checkSquareSideBefore coords dir st with
-        | Some _ -> false
-        | None -> 
-            match checkSquareSideAfter coords dir st with
-            | Some _ -> false
-            | None -> true
+    let addSF pos (sqr:Parser.square) sqrs = Map.fold (fun acc k v -> Map.add pos (k,v) acc) sqrs sqr
+
+    
+
+    let find (coords,tile) dict hand st =
+
+        let shouldUseCheckH = fun coords -> 
+            (State.checkSquareFree (left coords) st).IsNone && (State.checkSquareFree (right coords) st).IsNone
+
+        let shouldUseCheckV = fun coords -> 
+            (State.checkSquareFree (up coords) st).IsNone && (State.checkSquareFree (down coords) st).IsNone
 
 
-    let rec tryNextLetter (x,y) dir dict hand acc st =
-        match State.checkSquareFree (x,y) st with
-        | Some (_, (id,(c,v))) -> 
-            match Dictionary.step c dict with
-            | Some (_, dict') -> 
-                if dir = Direction.Right then tryNextLetter (x+1,y) dir dict' hand acc st
-                else tryNextLetter (x,y+1) dir dict' hand acc st
-            | None -> None
-        | None -> 
-            if shouldUseSquare (x,y) dir st 
-            then checkEach (x,y) dir dict hand hand acc st
-            else None
-    and checkEach (x,y) dir dict hand untried acc st = 
-        // If all tiles on hand have been tried, return None
-        if MultiSet.isEmpty untried then None 
-        else
-            let tile = (MultiSet.toList untried).Head
-            let c = tile |> fun (_,(c,_)) -> c
-            // Check if letter is usable in dictionary
-            match Dictionary.step c dict with
-            | Some (b, dict') -> 
-                // If word is complete, return accumulator
-                if b then Some (((x,y),tile)::acc)
-                else 
-                    let acc' = ((x,y),tile)::acc
-                    match dir with
-                    | Direction.Right -> tryNextLetter (x+1,y) dir dict' (MultiSet.removeSingle tile hand) acc' st
-                    | Direction.Down -> tryNextLetter (x,y+1) dir dict' (MultiSet.removeSingle tile hand) acc' st
-            | None ->
-                // If letter is not usable, check next tile in hand
-                checkEach (x,y) dir dict hand (MultiSet.removeSingle tile untried) acc st
+        let tryDirection dirCheck next sidesCheck dict =
 
-        
+            let rec tryNextLetter coords dict hand pos word move sqrs  =
+                let sqrOption = State.getSquare coords st
+                let sqr = sqrOption |> fun (Some sqr) -> sqr
+                
+                if State.checkSquareValid coords st then
+                    match State.checkSquareFree coords st with
+                    | Some (_, (id,(c,v))) -> 
+                        match Dictionary.step c dict with
+                        | Some (_, dict') -> tryNextLetter (next coords) dict' hand (pos+1) (word@[(c,v)]) move (addSF pos sqr sqrs)
+                        | None -> None
+                    | None -> 
+                        if not (MultiSet.isEmpty hand) && sqrOption.IsSome && sidesCheck coords
+                        then 
+                            MultiSet.fold (fun mv tile n -> 
+                                match Dictionary.step (tileChar tile) dict with
+                                | Some (b,dict') -> 
+                                    match tryNextLetter (next coords) dict' (MultiSet.removeSingle tile hand) (pos+1) (word@[tileVal tile]) ((coords,tile)::move) (addSF pos sqr sqrs) with
+                                    | Some (points,move) -> 
+                                        match mv with
+                                        | Some (points',_) -> if points > points' then Some (points,move) else mv
+                                        | None -> Some (points,move)
+                                    | None -> if b && State.checkWord word st.dict then Some (calcPoints (word@[tileVal tile]) (addSF pos sqr sqrs) |> function 
+                                                                                                                                                       | StateMonad.Success i -> i
+                                                                                                                                                       | _ -> 0
+                                                                                                                                                       , ((coords,tile)::move)) else mv
+                                | None -> mv
+                                ) None hand
+                        else None
+                else None
+
+
+            if State.checkSquareValid coords st && (State.checkSquareFree (dirCheck coords) st).IsSome then None
+            else tryNextLetter coords dict hand 1 [tileVal tile] [] (addSF 0 (State.getSquare coords st |> fun (Some sqr) -> sqr) Map.empty)
+
+
+                
             
-    // Try to create a word starting from given tile
-    // If no word is found horizontally, tries vertically
-    let wordFromTile ((x,y),tile) dict hand st =
-        let acc = []
-        let c = tile |> fun (_,(c,_)) -> c
-        match Dictionary.step c dict with
-        | Some (_, dict') -> 
-            let result = match checkSquareSideBefore (x,y) Direction.Right st with
-                         | Some _ -> None
-                         | None -> tryNextLetter (x+1,y) Direction.Right dict' hand acc st
-            match result with
-            | Some acc -> Some acc
-            | None -> 
-                match checkSquareSideBefore (x,y) Direction.Down st with
-                | Some _ -> None
-                | None -> tryNextLetter (x,y+1) Direction.Down dict' hand acc st
-        | None -> None
+
+        match Dictionary.step (tileChar tile) dict with
+                | Some (_, dict') -> 
+                    match tryDirection left right shouldUseCheckV dict' with
+                    | Some (points,move) -> 
+                        match tryDirection up down shouldUseCheckH dict' with
+                        | Some (points',move') -> if points > points' then Some (points,move) else Some (points',move')
+                        | None -> Some (points,move)
+                    | None -> tryDirection up down shouldUseCheckH dict'
+                | None -> None
 
 
-    let rec findFirstWord coords dict hand acc st =
-        match checkEachFW coords dict hand hand acc st with
-        | Some acc' -> Some acc'
-        | None -> None
-    and checkEachFW (x,y) dict hand untried acc st = 
-           if MultiSet.isEmpty untried then None 
-           else
-               let tile = (MultiSet.toList untried).Head
-               let c = tile |> fun (_,(c,_)) -> c
-               match Dictionary.step c dict with
-               | Some (b, dict') -> 
-                   if b then Some (((x,y),tile)::acc)
-                   else 
-                       let acc' = ((x,y),tile)::acc
-                       findFirstWord (x,y+1) dict' (MultiSet.removeSingle tile hand) acc' st
-               | None ->
-                   checkEachFW (x,y) dict hand (MultiSet.removeSingle tile untried) acc st
+
+    let findWord tiles dict hand st =
+        if Map.isEmpty tiles then None
+        else 
+            Map.fold (fun mv coords tile ->
+                match find (coords,tile) dict hand st with
+                | Some (points,move) -> 
+                    match mv with
+                    | Some (points',_) -> if points > points' then Some (points,move) else mv
+                    | None -> Some (points,move)
+                | None -> mv
+            ) None tiles
+
+
+
+    let rec findFirstWord coords dict hand pos word move sqrs st =
+        let sqrOption = State.getSquare coords st
+        let sqr = sqrOption |> fun (Some sqr) -> sqr
+
+        if MultiSet.isEmpty hand || sqrOption.IsNone then None
+        else
+            MultiSet.fold (fun mv tile n ->
+                match Dictionary.step (tileChar tile) dict with
+                | Some (b,dict') -> 
+                    match findFirstWord (down coords) dict' (MultiSet.removeSingle tile hand) (pos+1) (word@[tileVal tile]) ((coords,tile)::move) (addSF pos sqr sqrs) st with
+                    | Some (points,move) -> 
+                        match mv with
+                        | Some (points',_) -> if points > points' then Some (points,move) else mv
+                        | None -> Some (points,move)
+                    | None -> if b then Some (calcPoints (word@[tileVal tile]) (addSF pos sqr sqrs) |> function 
+                                                                                                       | StateMonad.Success i -> i
+                                                                                                       | _ -> 0
+                                                                                                       , ((coords,tile)::move)) else mv
+                | None -> mv
+            ) None hand
 
 
 
@@ -210,6 +234,7 @@ module Scrabble =
     open System.Threading
 
     let playGame cstream pieces (st : State.state) =
+            
 
         let rec aux (st : State.state) =
             Print.printHand pieces (State.hand st)
@@ -219,32 +244,29 @@ module Scrabble =
                 // forcePrint "Input move (format '(<x-coordinate> <y-coordinate>
                 // <piece id><character><point-value> )*', note the absence of space between the last inputs)\n\n"
                 
-                //let input =  System.Console.ReadLine()
+            let input =  System.Console.ReadLine()
                 //let move = RegEx.parseMove input
-            let hand' = State.handToTiles st.hand st
+
+            // All wildcard tiles are treated as 'A'
+            let hand' = MultiSet.fold (fun acc id count -> 
+                            match Map.tryFind id pieces with
+                            | Some (t: tile) -> MultiSet.add (id,t.MinimumElement) count acc
+                            | None -> acc
+                            ) MultiSet.empty st.hand
+
             let m = match Map.isEmpty st.tiles with
-                    | true -> algorithm.findFirstWord (0,0) st.dict hand' [] st
-                    | false -> 
-                        let l = Map.toList st.tiles
-                        let rec tryTile (untried: (coord*State.idTile) list) =
-                            match algorithm.wordFromTile untried.Head st.dict hand' st with
-                            | Some move -> Some move
-                            | None -> 
-                                if List.isEmpty untried then None
-                                else tryTile untried.Tail
-                        tryTile l
+                    | true -> algorithm.findFirstWord (0,0) st.dict hand' 0 [] [] Map.empty st
+                    | false -> algorithm.findWord st.tiles st.dict hand' st
                 
             //else ()
             match m with
-            | Some move -> 
+            | Some (points,move) -> 
                 debugPrint (sprintf "Player %d -> Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
                 send cstream (SMPlay move)
             | None -> send cstream SMPass
 
             let msg = recv cstream
-            match m with
-            | Some move -> debugPrint (sprintf "Player %d <- Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
-            | None -> ()
+            //debugPrint (sprintf "Player %d <- Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
 
             match msg with
             | RCM (CMPlaySuccess(ms, points, newPieces)) ->
@@ -258,19 +280,23 @@ module Scrabble =
                 let tiles = List.fold (fun acc (coords,tile) -> Map.add coords tile acc) st.tiles ms
 
                 (* New state *)
-                let st' = State.mkState st.board st.dict st.tileLookup st.playerNumber st.numPlayers hand tiles (State.updPlayerTurn st)
+                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers hand tiles (State.updPlayerTurn st)
                 aux st'
 
             | RCM (CMPlayed (pid, ms, points)) ->
                 (* Successful play by other player. Update your state *)
 
                 (* New state *)
-                let st' = State.mkState st.board st.dict st.tileLookup st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
+                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
                 aux st'
 
             | RCM (CMPlayFailed (pid, ms)) ->
                 (* Failed play. Update your state *)
-                let st' = State.mkState st.board st.dict st.tileLookup st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
+                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
+                aux st'
+
+            | RCM (CMPassed (pid)) ->
+                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
                 aux st'
 
             | RCM (CMGameOver _) -> ()
@@ -306,5 +332,5 @@ module Scrabble =
                   
         let handSet = List.fold (fun acc (x, k) -> MultiSet.add x k acc) MultiSet.empty hand
 
-        fun () -> playGame cstream tiles (State.mkState board dict tiles playerNumber numPlayers handSet Map.empty playerTurn)
+        fun () -> playGame cstream tiles (State.mkState board dict playerNumber numPlayers handSet Map.empty playerTurn)
         
