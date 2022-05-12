@@ -103,8 +103,6 @@ module State =
     // just check is this word exist or not
     let checkWord word = Dictionary.lookup (List.fold (fun acc (c,v) -> acc + c.ToString()) "" word)
 
-    
-    
 
 module internal algorithm =
     
@@ -280,7 +278,7 @@ module Scrabble =
             // All wildcard tiles are treated as 'A'
             let hand' = MultiSet.fold (fun acc id count -> 
                             match Map.tryFind id pieces with
-                            | Some (t: tile) -> MultiSet.add (id,t.MinimumElement) count acc
+                            | Some (t: tile) -> MultiSet.add (id, t.MinimumElement) count acc
                             | None -> acc
                             ) MultiSet.empty st.hand
 
@@ -290,10 +288,13 @@ module Scrabble =
                 
             //else ()
             match m with
-            | Some (points,move) -> 
+            | Some (points, move) -> 
                 debugPrint (sprintf "Player %d -> Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
                 send cstream (SMPlay move)
-            | None -> send cstream SMPass
+            | None ->
+                let tailsToChange = MultiSet.toList st.hand
+                send cstream (SMChange tailsToChange)
+
 
             let msg = recv cstream
             //debugPrint (sprintf "Player %d <- Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
@@ -313,6 +314,15 @@ module Scrabble =
                 let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers hand tiles (State.updPlayerTurn st)
                 aux st'
 
+            | RCM (CMChangeSuccess(newTiles)) ->
+                
+                (* No possible moves. Update your hand (remove old tiles, add the new ones, change turn) *)
+                let newPcs = List.fold (fun acc (x, k) -> MultiSet.add x k acc) MultiSet.empty newTiles
+                let hand = newPcs
+
+                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers hand st.tiles (State.updPlayerTurn st)
+                aux st'
+                
             | RCM (CMPlayed (pid, ms, points)) ->
                 (* Successful play by other player. Update your state *)
 
