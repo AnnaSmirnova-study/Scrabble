@@ -283,7 +283,7 @@ module Scrabble =
                             ) MultiSet.empty st.hand
 
             let m = match Map.isEmpty st.tiles with
-                    | true -> algorithm.findFirstWord (0,0) st.dict hand' 0 [] [] Map.empty st
+                    | true -> algorithm.findFirstWord (st.board.center) st.dict hand' 0 [] [] Map.empty st
                     | false -> algorithm.findWord st.tiles st.dict hand' st
                 
             //else ()
@@ -322,26 +322,33 @@ module Scrabble =
 
                 let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers hand st.tiles (State.updPlayerTurn st)
                 aux st'
+ 
                 
             | RCM (CMPlayed (pid, ms, points)) ->
                 (* Successful play by other player. Update your state *)
 
                 (* New state *)
+                // change turn, add tiles, don't need to use points
                 let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
                 aux st'
 
             | RCM (CMPlayFailed (pid, ms)) ->
                 (* Failed play. Update your state *)
+                
+                // change turn 
                 let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
                 aux st'
 
             | RCM (CMPassed (pid)) ->
+                
+                // change turn
                 let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
                 aux st'
 
             | RCM (CMGameOver _) -> ()
             | RCM a -> failwith (sprintf "not implmented: %A" a)
-            | RGPE err -> printfn "Gameplay Error:\n%A" err; aux st
+            
+            | RGPE err -> printfn "Gameplay Error:\n%A" err; aux st // make a flag to make less tiles from hand
 
 
         aux st
