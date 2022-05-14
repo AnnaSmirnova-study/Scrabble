@@ -42,11 +42,7 @@ module State =
     // information, such as number of players, player turn, etc.
 
     // Maybe move this somewhere else
-    //type idTile = (uint32 * (char * int))
     type tileVal = (char * int)
-
-    //let tileVal ((_,(_,v)):idTile) = v
-    //let tileId ((id,_):idTile) = id
     
 
     type state = {
@@ -83,15 +79,6 @@ module State =
         if t > numPlayers st then 1u
         else t
 
-    // If square is free returns Some (Some square, None)
-    // If taken returns Some (Some square, Some tile)
-    // Any other result means the square is invalid and cannot be used
-    let checkSquareTile coords st = st.board.squares coords |> function 
-        | StateMonad.Success sqr -> sqr |> Option.map (fun sqr -> sqr) |> fun sqr -> Some (sqr, Map.tryFind coords st.tiles)
-        | StateMonad.Failure _ -> None
-        
-    // let checkDirection <- maybe we can try make a word and then check is it possible to put it?
-    // or maybe it's easier to just check everytime we want put more letters 
     
     // just check is this word exist or not
     let checkWord word = Dictionary.lookup (List.fold (fun acc (c,v) -> acc + c.ToString()) "" word)
@@ -99,7 +86,7 @@ module State =
 
 module internal algorithm =
 
-    type crossFun = char*int -> ((char*int)*Parser.square) list
+    //type crossFun = char*int -> ((char*int)*Parser.square) list
 
     type ws = {
         coords   : coord
@@ -116,8 +103,6 @@ module internal algorithm =
     }
     
     let tileChar = fun (c,_) -> c
-    //let idTilePoints = fun (_,(_,p)) -> p
-    //let idTileVal = fun (_,t) -> t
 
     // Functions to update coordinates
     let right = fun (x,y) -> (x+1,y)
@@ -137,154 +122,9 @@ module internal algorithm =
     // Add squareFun from a given square to the map of squareFuns
     let addSF pos (sqr:Parser.square) sqrs = Map.fold (fun acc k v -> Map.add pos (k,v) acc) sqrs sqr
 
-    (*
-    let tryEndWord b coords word sqrs move st def = 
-        match State.checkSquareTile coords st with
-        | Some (Some _, Some _) -> def
-        | _ -> if b && (List.isEmpty move) then Some (calcPoints (List.rev word) sqrs, move) else def
-
-        
-    let findWord tiles dict hand st =
-
-        (*
-            Try finding a word in the given direction.
-            next is the function for updating the coordinates
-            sidesCheck is the function for checking the squares next to the coordinates
-        *)
-        let tryDirection coords next sidesCheck dict word =
-            (*
-                Recursive function to try next letter in the word.
-                Uses fold on the hand to try each letter.
-
-                -- Used for points calculation
-                pos is the char position in the word.
-                word is the list of tiles in the word.
-                sqrs is a map with the squareFuns according to the pos.
-
-                valid is true if the word contains at least one new tile
-            *)
-            let rec tryNextLetter coords dict hand pos word move sqrs valid  =
-                match State.checkSquareTile coords st with
-                | Some (Some sqr, Some (c,v)) -> 
-                    match Dictionary.step c dict with
-                    // Adds the existing tile to the word and the sqrs, but not to the move
-                    | Some (b, dict') -> 
-                        match tryNextLetter (next coords) dict' hand (pos+1) ((c,v)::word) move (addSF pos sqr sqrs) valid with
-                        //Option.defaultValue (tryEndWord b (next coords) ((c,v)::word) (addSF pos sqr sqrs) move st None) |> 
-                        | Some move' -> Some move'
-                        | None -> tryEndWord b (next coords) ((c,v)::word) (addSF pos sqr sqrs) move st None
-                    | _ -> None
-                | Some (Some sqr, None) -> 
-                    if not (MultiSet.isEmpty hand) && sidesCheck coords
-                    then 
-                        MultiSet.fold (fun mv (id,tile) _ -> 
-                            Set.fold (fun mv' tileVal ->
-                                match Dictionary.step (tileChar tileVal) dict with
-                                | Some (b,dict') -> 
-                                    match tryNextLetter (next coords) dict' (MultiSet.removeSingle (id,tile) hand) (pos+1) (tileVal::word) ((coords,(id,tileVal))::move) (addSF pos sqr sqrs) true with
-                                    | Some (points,move) -> 
-                                        match mv' with
-                                        | Some (points',_) -> if points > points' then Some (points,move) else mv'
-                                        | None -> Some (points,move)
-                                    | None -> 
-                                        // Rechecks if word is in dictionary before returning it.
-                                        // If the square after the last letter is not free, don't use the move.
-                                        match State.checkSquareTile (next coords) st with
-                                        | Some (Some sqr, None) when b && valid -> Some (calcPoints (List.rev (tileVal::word)) (addSF pos sqr sqrs), ((coords,(id,tileVal))::move))
-                                        | _ -> mv'
-                                | None -> mv'
-                            ) mv tile
-                        ) None hand
-                    else None
-                | _ -> None
-
-            match State.checkSquareTile coords st with
-            | Some (Some sqr, _) -> tryNextLetter (next coords) dict hand 1 word [] (addSF 0 sqr Map.empty) false
-            | _ -> None
-
-
-        // Check squares to to the sides of a coordinate
-        let checkSides before after = fun coords -> 
-            match State.checkSquareTile (before coords) st with
-            | Some (Some _, None) -> 
-                match State.checkSquareTile (after coords) st with
-                | Some (Some _, None) -> true
-                | _ -> false
-            | _ -> false
-
-        
-
-        (*
-        let checkCrossingFun before after squares sqr coords : crossFun option =
-            let rec getNext coords' next acc =
-                match checkSquareTile coords' squares with
-                | Some (Some sqr, Some tile) -> getNext (next coords) next ((tile,sqr)::acc)
-                | _ -> acc
-            let getBefore = getNext (before coords) before []
-            let getAfter = getNext (after coords) after [] |> List.rev
-            match (getBefore,getAfter) with
-            | ([],[]) -> None
-            | (before,after) -> Some (fun tile -> (before@((tile,sqr)::after)))
-
-            let rec checkBefore coords' next =
-                match checkSquareTile coords' squares with
-                | Some (Some sqr, Some tile) -> 
-                    match checkBefore (next coords) next with
-                    | Some (pos, word, sqrs) -> Some (pos+1, tile::word, addSF (pos+1) sqr sqrs)
-                    | None -> (0, [tile], addSF 0 sqr Map.empty)
-                | _ -> None
-            let rec checkAfter coords' next (pos,word,sqrs) =
-                match checkSquareTile coords' squares with
-                | Some (Some sqr, Some tile) -> checkAfter (next coords') next (pos+1, tile::word, addSF (pos+1) sqr sqrs)
-                | _ -> (pos,word,sqrs)
-            let getBefore = checkBefore (before coords) before
-            let getAfter = checkAfter (after coords) after 
-            *)
-
-        
-
-                
-        // Start finding a word from a given tile, compare best word horizontally and vertically to return the best
-        // First try horizontal, then try vertical
-        let startWord (coords,tileVal) dict =
-            // Check if square before is free before starting word
-            let tryRight dict' = 
-                match State.checkSquareTile (left coords) st with
-                | Some (Some sqr, None) -> tryDirection coords right (checkSides up down) dict' [tileVal]
-                | _ -> None
-
-            let tryDown dict' = 
-                match State.checkSquareTile (up coords) st with
-                | Some (Some sqr, None) -> tryDirection coords down (checkSides left right) dict' [tileVal]
-                | _ -> None
-
-            match Dictionary.step (tileChar tileVal) dict with
-                    | Some (_, dict') -> 
-                        match tryRight dict' with
-                        | Some (points,move) -> 
-                            match tryDown dict' with
-                            | Some (points',move') -> if points > points' then Some (points,move) else Some (points',move')
-                            | None -> Some (points,move)
-                        | None -> tryDown dict'
-                    | None -> None
-
-
-
-        // For each tile on the board, find the move with the highest points and compare to return the best
-        if Map.isEmpty tiles then None
-        else 
-            Map.fold (fun mv coords tile ->
-                match startWord (coords,tile) dict with
-                | Some (points,move) -> 
-                    match mv with
-                    | Some (points',_) -> if points > points' then Some (points,move) else mv
-                    | None -> Some (points,move)
-                | None -> mv
-            ) None tiles
-            *)
-
 
     let findWord hand (st:State.state) =
+        // Given two (points,move) option, returns the one with the greatest amount of points
         let greatest a b =
             match a with
             | Some (p,m) -> 
@@ -292,13 +132,6 @@ module internal algorithm =
                 | Some (p',m') -> if p > p' then Some (p,m) else Some (p',m')
                 | None -> Some (p,m)
             | None -> b
-
-        let calcPoints word sqrs = 
-            let f = List.sortBy (fun (_,(k,_)) -> k) (Map.toList sqrs)
-            List.fold (fun acc (pos,(_,sf)) -> 
-                match sf word pos acc with
-                | StateMonad.Success acc' -> acc'
-                | _ -> acc) 0 f
 
         
         let rec tryNextLetter squares dictStep hand pos word sqrs move =
@@ -327,31 +160,40 @@ module internal algorithm =
                     ) mv tile
                 ) None hand
             | _ -> None
+
             
-        // Try to start a word from each square in the list (which was made in getSquares)
-        let rec tryFromNextSquare squares dict hand =
-            match squares with
-            | (ws,Some tileVal)::tail when ws.pos < 1 -> 
-                match Dictionary.step (tileChar tileVal) dict with
-                | Some (b,dictStep) -> tryNextLetter tail dictStep hand 1 [tileVal] (addSF 0 ws.sqr Map.empty) []
-                | None -> tryFromNextSquare tail dict hand
-            | (ws,None)::tail when ws.pos < 1 -> 
-                MultiSet.fold (fun mv (id,tile) _ -> 
-                    Set.fold (fun mv' tileVal ->
-                        match Dictionary.step (tileChar tileVal) dict with
-                        | Some (_,dictStep) -> 
-                            match tryNextLetter tail dictStep (MultiSet.removeSingle (id,tile) hand) 1 [tileVal] (addSF 0 ws.sqr Map.empty) [(ws.coords,(id,tileVal))] with
-                            | Some (points,move) -> 
-                                match mv' with
-                                | Some (points',_) -> if points > points' then Some (points,move) else mv'
-                                | None -> Some (points,move)
-                            | None -> mv'
-                        | None -> mv'
-                    ) mv tile
-                ) None hand
-            | _ -> None
+        (*
+            Try to start a word from each square in the list (which was made in getSquares)
+            sqrsBefore is the reverse list of squares before the square we wish to start from
+            sqrsToUse is the lit of squares which may be used in the word
+
+            [][][] <- sqrsBefore  [][][][] <- sqrsToUse
+                                  ^ This is the square the word will start from
+        
+            When trying to start from the next square, move
+            [][][]   [][][][]
+            ^ This
+            [][]   [][][][][]
+                   ^ To here
+            and try again
+        *)
+        let rec tryFromNextSquare (sqrsBefore,sqrsToUse) dict hand mv =
+            if List.isEmpty sqrsToUse then None
+            else
+                tryNextLetter sqrsToUse dict hand 0 [] Map.empty [] |>
+                greatest mv |>
+                fun mv' ->
+                    match sqrsBefore with
+                    | b::tail -> tryFromNextSquare (tail,b::sqrsToUse) dict hand mv'
+                    | _ -> mv'
+
     
-        // Check if a square is free
+        (* 
+            Check if a square is free.
+            If the square is free returns Some (Some square, None).
+            If the square is not free returns Some (Some square, Some tile)
+            Any other result means the square should be treated as invalid, and should not be used
+        *)
         let checkSquareTile coords squares = squares coords |> function 
             | StateMonad.Success sqr -> sqr |> Option.map (fun sqr -> sqr) |> fun sqr -> Some (sqr, Map.tryFind coords st.tiles)
             | StateMonad.Failure _ -> None
@@ -364,73 +206,72 @@ module internal algorithm =
                 | _ -> true
             if (check before) && (check after) then true else false
 
-        // Get a list of the squares a word can be placed on in a given direction
-        // To prevent checking the same squares over and over
+        (* 
+            Get a list of the squares before and after the given coordinates where the word may be placed.
+            This is done to have a set list of squares, rather than fetching the same squares over and over while creating the word.
+
+            The getSquaresBefore function will get a list of squares before the given coordinates. 
+            The list will include a max number of squares equal to "count" (the number of tiles in the hand).
+            If the function encounters a used square, neither this square nor the following will be included.
+            ['A'][][][][]  <- moving right to left
+                   ^ List will stop here
+            This ensures the word will to include any letters before the given coordinates.
+            If a word can be made with said letter, it will be attempted when checking that tile, so it should not be used here.
+
+            The getSquaresAfter function will include the given coordinates as well as any used square located after the given coordinates.
+            The list will include a max number of unused squares equal to "count" (the number of tiles in the hand).
+            Any used squares found along the way will not count towards this limit.
+            ['A'][][][]['A'][][][][]
+              ^ This is the square at the given coordinates
+
+            The value canEnd in the list item signals whether the square is a valin place to end a word.
+            The word cannot end on a square if the square is located before the given coordinates, or if it followed by a used square.
+        *)
         let getSquares boardSquares count back forward sidesFree coords  =
-            // If the next square is not free, the word cannot end here
             let canEnd coords' = 
                 match checkSquareTile (forward coords') boardSquares with
                 | Some (Some _, Some _) -> false
                 | _ -> true
 
             let rec getSquaresAfter coords' next' count' pos acc = 
+                debugPrint (sprintf "count: %A" count')
                 match checkSquareTile coords' boardSquares with
-                | Some (Some sqr, None) -> if (count' >= 0u) && (sidesFree coords') then getSquaresAfter (next' coords') next' (count'-1u) (pos+1) (((mkWS coords' sqr pos (canEnd coords')),None)::acc) else acc
+                | Some (Some sqr, None) -> if (count' > 0) && (sidesFree coords') then getSquaresAfter (next' coords') next' (count'-1) (pos+1) (((mkWS coords' sqr pos (canEnd coords')),None)::acc) else acc
                 | Some (Some sqr, Some tile) -> getSquaresAfter (next' coords') next' count' (pos+1) (((mkWS coords' sqr pos (canEnd coords')),Some tile)::acc)
                 | _ -> acc
             let rec getSquaresBefore coords' next' count' pos acc =
                 match checkSquareTile coords' boardSquares with
-                | Some(Some sqr, None) -> if (count' > 3u) && (sidesFree coords') then getSquaresBefore (next' coords') next' (count'-1u) (pos-1) (((mkWS coords' sqr pos false),None)::acc) else acc
+                | Some (Some sqr, None) -> if (count' > 0) && (sidesFree coords') then getSquaresBefore (next' coords') next' (count'-1) (pos-1) (((mkWS coords' sqr pos false),None)::acc) else acc
                 | _ -> acc.Tail
-            List.rev (getSquaresAfter coords forward count 0 []) |> getSquaresBefore (back coords) back count -1
+            (List.rev (getSquaresBefore (back coords) back count -1 []), List.rev (getSquaresAfter coords forward count 0 []))
 
 
-        //let findWord hand (st:State.state) = 
+        (*
+            Functions for checking directions.
+            sidesFree(H/V) are functions to check the squares above/below and left/right of given coordinates.
+            squares(H/V) create the square lists horizontally and vertically for the given coordinates.
+            try(H/V) runs the algorithm in a horizontal or vertical direction, if the given coordinates are not preceded by a used square (meaning a word cannot start there).
+        *)
         let sidesFreeH = sidesFree st.board.squares up down
         let sidesFreeV = sidesFree st.board.squares left right
 
-        let squaresH = getSquares st.board.squares (MultiSet.size hand) left right sidesFreeH
-        let squaresV = getSquares st.board.squares (MultiSet.size hand) up down sidesFreeV
+        let squaresH = getSquares st.board.squares (int (MultiSet.size hand)) left right sidesFreeH
+        let squaresV = getSquares st.board.squares (int (MultiSet.size hand)) up down sidesFreeV
 
         let tryH coords = 
             match checkSquareTile (left coords) st.board.squares with 
             | Some (Some _, Some _) -> None
-            | _ -> tryFromNextSquare (squaresH coords) st.dict hand 
+            | _ -> tryFromNextSquare (squaresH coords) st.dict hand None
         let tryV coords =
             match checkSquareTile (up coords) st.board.squares with 
             | Some (Some _, Some _) -> None
-            | _ -> tryFromNextSquare (squaresV coords) st.dict hand 
+            | _ -> tryFromNextSquare (squaresV coords) st.dict hand None
 
-        if Map.isEmpty st.tiles then tryV st.board.center//greatest (tryH st.board.center) (tryV st.board.center)
+        if Map.isEmpty st.tiles then greatest (tryH st.board.center) (tryV st.board.center)
         else
             Map.fold (fun mv coords _ ->
                 greatest (tryH coords) (tryV coords) |> greatest mv
             ) None st.tiles
-
-
-
-
-    (*
-    // Finds a word only from the hand
-    let rec findFirstWord coords dict hand pos word move sqrs st =
-        // Checks if square exists before trying letters
-        match State.checkSquareTile coords st with
-        | Some (Some sqr, _) when not (MultiSet.isEmpty hand) -> 
-            MultiSet.fold (fun mv (id,tile) _ ->
-                Set.fold (fun mv' tileVal ->
-                    match Dictionary.step (tileChar tileVal) dict with
-                    | Some (b,dict') -> 
-                        match findFirstWord (down coords) dict' (MultiSet.removeSingle (id,tile) hand) (pos+1) (word@[tileVal]) ((coords,(id,tileVal))::move) (addSF pos sqr sqrs) st with
-                        | Some (points,move) -> 
-                            match mv with
-                            | Some (points',_) -> if points > points' then Some (points,move) else mv
-                            | None -> Some (points,move)
-                        | None -> if b then Some (calcPoints (List.rev (tileVal::word)) (addSF pos sqr sqrs), ((coords,(id,tileVal))::move)) else mv
-                    | None -> mv'
-                ) mv tile
-            ) None hand
-        | _ -> None
-        *)
 
 
 
