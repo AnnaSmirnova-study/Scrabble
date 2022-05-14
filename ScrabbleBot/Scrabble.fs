@@ -260,12 +260,12 @@ module internal algorithm =
 
         let tryH coords = 
             match checkSquareTile (left coords) st.board.squares with 
-            | Some (Some _, Some _) -> None
-            | _ -> tryFromNextSquare (squaresH coords) st.dict hand None
+            | Some (Some _, None) -> tryFromNextSquare (squaresH coords) st.dict hand None
+            | _ -> None
         let tryV coords =
             match checkSquareTile (up coords) st.board.squares with 
-            | Some (Some _, Some _) -> None
-            | _ -> tryFromNextSquare (squaresV coords) st.dict hand None
+            | Some (Some _, None) -> tryFromNextSquare (squaresV coords) st.dict hand None
+            | _ -> None
 
         if Map.isEmpty st.tiles then greatest (tryH st.board.center) (tryV st.board.center)
         else
