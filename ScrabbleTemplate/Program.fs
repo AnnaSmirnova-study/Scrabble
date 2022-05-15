@@ -35,8 +35,8 @@ let main argv =
 //    let board      = ScrabbleUtil.InfiniteRandomBoard.infiniteRandomBoard ()
 //    let board      = ScrabbleUtil.InfiniteRandomBoard.infiniteRandomBoardSeed (Some 42)
 
-//    let board      = ScrabbleUtil.HoleBoard.holeBoard ()
-    let board      = ScrabbleUtil.InfiniteHoleBoard.infiniteHoleBoard ()
+    let board      = ScrabbleUtil.HoleBoard.holeBoard ()
+//    let board      = ScrabbleUtil.InfiniteHoleBoard.infiniteHoleBoard ()
 
     let words     = readLines "../../../Dictionaries/English.txt"
 
@@ -56,8 +56,8 @@ let main argv =
     let (dictionary, time) =
         time (fun () -> ScrabbleUtil.Dictionary.mkDict words dictAPI)
 
-    let players    = [("ScrabbleFighter", dictionary, ScrabbleFighter.Scrabble.startGame)]
-    //let players   = spawnMultiples "ScrabbleFighter" dictionary ScrabbleFighter.Scrabble.startGame 2
+    //let players    = [("ScrabbleFighter", dictionary, ScrabbleFighter.Scrabble.startGame)]
+    let players   = spawnMultiples "ScrabbleFighter" dictionary ScrabbleFighter.Scrabble.startGame 2
     //let players = spawnMultiples "OxyphenButazone" dictionary Oxyphenbutazone.Scrabble.startGame 4
 
 

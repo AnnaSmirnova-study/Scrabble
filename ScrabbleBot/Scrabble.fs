@@ -48,6 +48,8 @@ module State =
     type state = {
         board         : Parser.board
         dict          : ScrabbleUtil.Dictionary.Dict
+        players       : Map<uint32,bool>
+        changeAllowed : bool
         playerNumber  : uint32
         numPlayers    : uint32
         hand          : MultiSet.MultiSet<uint32>
@@ -55,9 +57,13 @@ module State =
         playerTurn    : uint32
     }
 
-    let mkState b d pn np h tiles pt = {
+    let mkPlayersMap numPlayers = List.fold (fun acc i -> Map.add i true acc) Map.empty [1u..numPlayers]
+
+    let mkState b d pmp ca pn np h tiles pt = {
         board = b; 
         dict = d;  
+        players = pmp;
+        changeAllowed = ca;
         playerNumber = pn; 
         numPlayers = np;
         hand = h; 
@@ -71,14 +77,15 @@ module State =
     let numPlayers st    = st.numPlayers
     let hand st          = st.hand
     let playerTurn st    = st.playerTurn
-    
 
-    (* Must be able to handle forfeits if multiplayer is implemented *)
     let updPlayerTurn st =
-        let t = playerTurn st + 1u
-        if t > numPlayers st then 1u
-        else t
-
+        let rec t pn = 
+            if pn > st.numPlayers then t 1u
+            else if st.players[pn] then pn
+            else t (pn+1u)
+        // To avoid eternal loop if all are false
+        if Map.forall (fun _ v -> not v) st.players then 0u
+        else t (st.playerTurn+1u)
     
     // just check is this word exist or not
     let checkWord word = Dictionary.lookup (List.fold (fun acc (c,v) -> acc + c.ToString()) "" word)
@@ -285,38 +292,34 @@ module Scrabble =
             Print.printHand pieces (State.hand st)
 
             // remove the force print when you move on from manual input (or when you have learnt the format)
-            //if st.playerTurn = st.playerNumber then
+            if st.playerTurn = st.playerNumber then
                 // forcePrint "Input move (format '(<x-coordinate> <y-coordinate>
                 // <piece id><character><point-value> )*', note the absence of space between the last inputs)\n\n"
                 
-            // Waits for input before startung turn (just press enter)
-            let input =  System.Console.ReadLine()
-                //let move = RegEx.parseMove input
+                // Waits for input before startung turn (just press enter)
+                //let input =  System.Console.ReadLine()
+                    //let move = RegEx.parseMove input
 
-            // All wildcard tiles are treated as 'A'
-            let hand' = MultiSet.fold (fun acc id count -> 
-                            match Map.tryFind id pieces with
-                            | Some (t: tile) -> MultiSet.add (id, t) count acc
-                            | None -> acc
-                            ) MultiSet.empty st.hand
-
-                            
-            //let m = match Map.isEmpty st.tiles with
-            //        | true -> algorithm.findFirstWord (st.board.center) st.dict hand' 0 [] [] Map.empty st
-            //        | false -> algorithm.findWord hand' st
+                let hand' = MultiSet.fold (fun acc id count -> 
+                                match Map.tryFind id pieces with
+                                | Some (t: tile) -> MultiSet.add (id, t) count acc
+                                | None -> acc
+                                ) MultiSet.empty st.hand
             
 
-            let m = algorithm.findWord hand' st
+                let m = algorithm.findWord hand' st
                 
-            //else ()
-            match m with
-            | Some (points, move) -> 
-                debugPrint (sprintf "Player %d -> Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
-                send cstream (SMPlay move)
-            | None ->
-                let tilesToChange = MultiSet.toList st.hand
-                send cstream (SMChange tilesToChange)
-
+                match m with
+                | Some (points, move) -> 
+                    debugPrint (sprintf "Player %d -> Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
+                    send cstream (SMPlay move)
+                | None ->
+                    if st.changeAllowed 
+                    then
+                        let tilesToChange = MultiSet.toList st.hand
+                        send cstream (SMChange tilesToChange)
+                    else send cstream SMPass
+            else ()
 
             let msg = recv cstream
             //debugPrint (sprintf "Player %d <- Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
@@ -333,42 +336,58 @@ module Scrabble =
                 let tiles = List.fold (fun acc (coords,(_,tileVal)) -> Map.add coords tileVal acc) st.tiles ms
 
                 (* New state *)
-                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers hand tiles (State.updPlayerTurn st)
+                let st' = State.mkState st.board st.dict st.players st.changeAllowed st.playerNumber st.numPlayers hand tiles (State.updPlayerTurn st)
                 aux st'
 
             | RCM (CMChangeSuccess(newTiles)) ->
-                
                 (* No possible moves. Update your hand (remove old tiles, add the new ones, change turn) *)
-                let newPcs = List.fold (fun acc (x, k) -> MultiSet.add x k acc) MultiSet.empty newTiles
-                let hand = newPcs
 
-                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers hand st.tiles (State.updPlayerTurn st)
+                let newPcs = List.fold (fun acc (x, k) -> MultiSet.add x k acc) MultiSet.empty newTiles
+
+                let st' = State.mkState st.board st.dict st.players st.changeAllowed st.playerNumber st.numPlayers newPcs st.tiles (State.updPlayerTurn st)
                 aux st'
  
-                
+            | RCM (CMChange (pid, numTiles)) ->
+                let st' = State.mkState st.board st.dict st.players st.changeAllowed st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
+                aux st'
+
             | RCM (CMPlayed (pid, ms, points)) ->
                 (* Successful play by other player. Update your state *)
+                let tiles = List.fold (fun acc (coords,(_,tileVal)) -> Map.add coords tileVal acc) st.tiles ms
 
                 (* New state *)
                 // change turn, add tiles, don't need to use points
-                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
+                let st' = State.mkState st.board st.dict st.players st.changeAllowed st.playerNumber st.numPlayers st.hand tiles (State.updPlayerTurn st)
                 aux st'
 
             | RCM (CMPlayFailed (pid, ms)) ->
                 (* Failed play. Update your state *)
                 
                 // change turn 
-                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
+                let st' = State.mkState st.board st.dict st.players st.changeAllowed st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
                 aux st'
 
             | RCM (CMPassed (pid)) ->
                 
                 // change turn
-                let st' = State.mkState st.board st.dict st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
+                let st' = State.mkState st.board st.dict st.players st.changeAllowed st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
+                aux st'
+
+            | RCM (CMForfeit (pid)) ->
+                // Mark the player as not active
+                let players = Map.add pid false st.players
+                let st' = State.mkState st.board st.dict players st.changeAllowed st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
+                aux st'
+
+            | RCM (CMTimeout (pid)) ->
+                let st' = State.mkState st.board st.dict st.players st.changeAllowed st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
                 aux st'
 
             | RCM (CMGameOver _) -> ()
-            | RCM a -> failwith (sprintf "not implmented: %A" a)
+
+            | RGPE (_::GPENotEnoughPieces(changeTiles,availableTiles)::_) | RGPE (GPENotEnoughPieces(changeTiles,availableTiles)::_) ->
+                let st' = State.mkState st.board st.dict st.players false st.playerNumber st.numPlayers st.hand st.tiles st.playerTurn
+                aux st'
             
             | RGPE err -> printfn "Gameplay Error:\n%A" err; aux st // make a flag to make less tiles from hand
 
@@ -401,5 +420,5 @@ module Scrabble =
                   
         let handSet = List.fold (fun acc (x, k) -> MultiSet.add x k acc) MultiSet.empty hand
 
-        fun () -> playGame cstream tiles (State.mkState board dict playerNumber numPlayers handSet Map.empty playerTurn)
+        fun () -> playGame cstream tiles (State.mkState board dict (State.mkPlayersMap numPlayers) true playerNumber numPlayers handSet Map.empty playerTurn)
         

@@ -40,12 +40,11 @@ module internal MultiSet
     
     let ofList lst = List.fold (fun m v -> addSingle v m) empty lst
     
-    let rec toList m = 
+    let toList m = 
         let rec tol l k n =
-            match n with
-            | n when n > 0u -> k::(tol l k (n-1u))
-            | _ -> l
-        foldBack (fun k v l -> tol l k v) m []
+            if n > 1u then tol (k::l) k (n-1u)
+            else k::l
+        foldBack (fun k n l -> tol l k n) m []
         
     let map f (M s) = Map.fold (fun m k v -> add (f k) v m) empty s
     
