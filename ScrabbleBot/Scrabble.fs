@@ -239,7 +239,6 @@ module internal algorithm =
                 | _ -> true
 
             let rec getSquaresAfter coords' next' count' pos acc = 
-                debugPrint (sprintf "count: %A" count')
                 match checkSquareTile coords' boardSquares with
                 | Some (Some sqr, None) -> if (count' > 0) && (sidesFree coords') then getSquaresAfter (next' coords') next' (count'-1) (pos+1) (((mkWS coords' sqr pos (canEnd coords')),None)::acc) else acc
                 | Some (Some sqr, Some tile) -> getSquaresAfter (next' coords') next' count' (pos+1) (((mkWS coords' sqr pos (canEnd coords')),Some tile)::acc)
