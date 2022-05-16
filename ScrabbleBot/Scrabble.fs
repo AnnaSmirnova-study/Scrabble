@@ -9,7 +9,7 @@ open System.IO
 open ScrabbleUtil.DebugPrint
 
 // The RegEx module is only used to parse human input. It is not used for the final product.
-
+(*
 module RegEx =
     open System.Text.RegularExpressions
 
@@ -29,6 +29,7 @@ module RegEx =
                     ((x |> int, y |> int), (id |> uint32, (c |> char, p |> int)))
                 | _ -> failwith "Failed (should never happen)") |>
         Seq.toList
+        *)
 
 module Print =
     let printHand pieces hand =
@@ -41,7 +42,6 @@ module State =
     // but it could, potentially, keep track of other useful
     // information, such as number of players, player turn, etc.
 
-    // Maybe move this somewhere else
     type tileVal = (char * int)
     
 
@@ -92,8 +92,6 @@ module State =
 
 
 module internal algorithm =
-
-    //type crossFun = char*int -> ((char*int)*Parser.square) list
 
     type ws = {
         coords   : coord
@@ -326,7 +324,6 @@ module Scrabble =
 
             match msg with
             | RCM (CMPlaySuccess(ms, points, newPieces)) ->
-                
                 (* Successful play by you. Update your state (remove old tiles, add the new ones, change turn, etc) *)
                 let newPcs = List.fold (fun acc (x, k) -> MultiSet.add x k acc) MultiSet.empty newPieces
                 let usedPcs = List.fold (fun acc (_, (id, (_))) -> MultiSet.addSingle id acc) MultiSet.empty ms
@@ -341,7 +338,6 @@ module Scrabble =
 
             | RCM (CMChangeSuccess(newTiles)) ->
                 (* No possible moves. Update your hand (remove old tiles, add the new ones, change turn) *)
-
                 let newPcs = List.fold (fun acc (x, k) -> MultiSet.add x k acc) MultiSet.empty newTiles
 
                 let st' = State.mkState st.board st.dict st.players st.changeAllowed st.playerNumber st.numPlayers newPcs st.tiles (State.updPlayerTurn st)
@@ -355,21 +351,14 @@ module Scrabble =
                 (* Successful play by other player. Update your state *)
                 let tiles = List.fold (fun acc (coords,(_,tileVal)) -> Map.add coords tileVal acc) st.tiles ms
 
-                (* New state *)
-                // change turn, add tiles, don't need to use points
                 let st' = State.mkState st.board st.dict st.players st.changeAllowed st.playerNumber st.numPlayers st.hand tiles (State.updPlayerTurn st)
                 aux st'
 
             | RCM (CMPlayFailed (pid, ms)) ->
-                (* Failed play. Update your state *)
-                
-                // change turn 
                 let st' = State.mkState st.board st.dict st.players st.changeAllowed st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
                 aux st'
 
             | RCM (CMPassed (pid)) ->
-                
-                // change turn
                 let st' = State.mkState st.board st.dict st.players st.changeAllowed st.playerNumber st.numPlayers st.hand st.tiles (State.updPlayerTurn st)
                 aux st'
 
@@ -389,7 +378,7 @@ module Scrabble =
                 let st' = State.mkState st.board st.dict st.players false st.playerNumber st.numPlayers st.hand st.tiles st.playerTurn
                 aux st'
             
-            | RGPE err -> printfn "Gameplay Error:\n%A" err; aux st // make a flag to make less tiles from hand
+            | RGPE err -> printfn "Gameplay Error:\n%A" err; aux st
 
 
         aux st

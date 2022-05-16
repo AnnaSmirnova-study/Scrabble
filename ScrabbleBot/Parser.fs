@@ -61,6 +61,11 @@ module internal Parser
     // Parse binary operator (element) (operator) (element) and return elements
     let binop po p1 p2 = p1 .>*> po .>*>. p2
 
+    // Parse p separated by sep with possible spaces 0/1 or more times and return p list
+    let sepByS p sep = sepBy p (spaces >>. sep .>> spaces)
+    let sepBy1S p sep = sepBy1 p (spaces >>. sep .>> spaces)
+
+
 
     // Numeric and char parse
     let TermParse, tref = createParserForwardedToRef<aExp>()
@@ -68,78 +73,83 @@ module internal Parser
     let AtomParse, aref = createParserForwardedToRef<aExp>()
     let CharParse, cref = createParserForwardedToRef<cExp>()
 
-    // Third priority
+    // Numeric third priority
     let AddParse = binop (pchar '+') ProdParse TermParse |>> Add <?> "Add"
     let SubParse = binop (pchar '-') ProdParse TermParse |>> Sub <?> "Sub"
     do tref := choice [AddParse; SubParse; ProdParse]
 
-    // Second priority
+    // Numeric second priority
     let MulParse = binop (pchar '*') AtomParse ProdParse |>> Mul <?> "Mul"
     let DivParse = binop (pchar '/') AtomParse ProdParse |>> Div <?> "Div"
     let ModParse = binop (pchar '%') AtomParse ProdParse |>> Mod <?> "Mod"
     do pref := choice [MulParse; DivParse; ModParse; AtomParse]
     
-    // First priority
+    // Numeric first priority
+    let PVParse   = unop pPointValue (parenthesise TermParse) |>> PV <?> "PointValue"
+    let CTIParse   = unop pCharToInt (parenthesise CharParse) |>> CharToInt <?> "CharToInt"
+    let NegParse   = unop (pchar '-') AtomParse |>> (fun x -> Mul (N -1, x)) <?> "Negation"
     let NParse   = pint32 |>> N <?> "Int"
     let VParse   = pid |>> V <?> "Variable"
-    let PVParse   = unop pPointValue AtomParse |>> PV <?> "PointValue"
-    let NegParse   = unop (pchar '-') AtomParse |>> (fun x -> Mul (N -1, x)) <?> "Negation"
-    let CTIParse   = unop pCharToInt CharParse |>> CharToInt <?> "CharToInt"
     let ParParse = parenthesise TermParse
     do aref := choice [PVParse; CTIParse; NegParse; NParse; VParse; ParParse]
 
-    let CParParse = parenthesise CharParse
-    let CVParse   = unop pCharValue AtomParse |>> CV <?> "CharValue"
+    // Char parse
+    let CVParse   = unop pCharValue (parenthesise TermParse) |>> CV <?> "CharValue"
+    let TUParse   = unop pToUpper (parenthesise CharParse) |>> ToUpper <?> "ToUpper"
+    let TLParse   = unop pToLower (parenthesise CharParse) |>> ToLower <?> "ToLower"
+    let ITCParse   = unop pIntToChar (parenthesise TermParse) |>> IntToChar <?> "IntToChar"
     let CParse   = pstring "\'" >>. anyChar .>> pstring"\'" |>> C <?> "Char"
-    let TUParse   = unop pToUpper CParParse |>> ToUpper <?> "ToUpper"
-    let TLParse   = unop pToLower CParParse |>> ToLower <?> "ToLower"
-    let ITCParse   = unop pIntToChar TermParse |>> IntToChar <?> "IntToChar"
-    do cref := choice [CVParse; TUParse; TLParse; ITCParse; CParse; CParParse]
+    do cref := choice [CVParse; TUParse; TLParse; ITCParse; CParse]
+
+
 
     // Binary parse
     let BTermParse, btref = createParserForwardedToRef<bExp>()
-    let BProdParse, beref = createParserForwardedToRef<bExp>()
     let BAtomParse, baref = createParserForwardedToRef<bExp>()
+    let BAEqualityParse, baeref = createParserForwardedToRef<bExp>()
 
-    let BConjParse = binop (pstring "/\\") BProdParse BTermParse |>> Conj <?> "Conj"
-    let BDisjParse = binop (pstring "\\/") BProdParse BTermParse |>> (fun (x,y) -> x .||. y) <?> "Disj"
-    do btref := choice [BConjParse; BDisjParse; BProdParse]
+    let BConjParse = sepBy1S BAtomParse (pstring "/\\") |>> List.reduceBack (fun x y -> Conj (x,y)) <?> "Conj"
+    let BDisjParse = sepBy1S BAtomParse (pstring "\\/") |>> List.reduceBack (fun x y -> x .||. y) <?> "Disj"
+    do btref := choice [BConjParse; BDisjParse; BAtomParse]
 
+    let BNParse = unop (pchar '~') BTermParse |>> Not <?> "Not"
+    let BILParse = unop pIsLetter (parenthesise CharParse) |>> IsLetter <?> "IsLetter"
+    let BIVParse = unop pIsVowel (parenthesise CharParse) |>> IsVowel <?> "IsVowel"
+    let BIDParse = unop pIsDigit (parenthesise CharParse) |>> IsDigit <?> "IsDigit"
+    let BTTParse = pTrue |>> (fun _ -> TT) <?> "True"
+    let BFFParse = pFalse |>> (fun _ -> FF) <?> "False"
+    let BParParse = parenthesise BTermParse
+    do baref := choice [BNParse; BILParse; BIVParse; BIDParse; BTTParse; BFFParse; BParParse; BAEqualityParse]
+
+    // Parse equality/difference of two numbers
     let AEqParse = binop (pchar '=') TermParse TermParse |>> AEq <?> "Equality"
     let AIneqParse = binop (pstring "<>") TermParse TermParse |>> (fun (x,y) -> x .<>. y) <?> "Inequality"
     let ALtParse = binop (pchar '<') TermParse TermParse |>> ALt <?> "Less than"
     let ALtEqParse = binop (pstring "<=") TermParse TermParse |>> (fun (x,y) -> x .<=. y) <?> "Less than or equal"
     let AHtParse = binop (pchar '>') TermParse TermParse |>> (fun (x,y) -> x .>. y) <?> "Higher than"
     let AHtEqParse = binop (pstring ">=") TermParse TermParse |>> (fun (x,y) -> x .>=. y) <?> "Higher than or equal"
-    do beref := choice [AEqParse; AIneqParse; ALtParse; ALtEqParse; AHtParse; AHtEqParse; BAtomParse]
+    do baeref := choice [AEqParse; AIneqParse; ALtParse; ALtEqParse; AHtParse; AHtEqParse]
 
-    let BNParse = unop (pchar '~') BTermParse |>> Not <?> "Not"
-    let BILParse = unop pIsLetter CharParse |>> IsLetter <?> "IsLetter"
-    let BIVParse = unop pIsVowel CharParse |>> IsVowel <?> "IsVowel"
-    let BIDParse = unop pIsDigit CharParse |>> IsDigit <?> "IsDigit"
-    let BTTParse = pTrue |>> (fun _ -> TT) <?> "True"
-    let BFFParse = pFalse |>> (fun _ -> FF) <?> "False"
-    let BParParse = parenthesise BTermParse
-    do baref := choice [BNParse; BILParse; BIVParse; BIDParse; BTTParse; BFFParse; BParParse]
+
 
     // Statement parse
     let SAParse, saref = createParserForwardedToRef<stm>()
     let SBParse, sbref = createParserForwardedToRef<stm>()
     let SCParse, scref = createParserForwardedToRef<stm>()
 
-    let SSeqParse = binop (pchar ';') SBParse SAParse |>> Seq <?> "Seq"
+    let SSeqParse = sepByS SBParse (pchar ';') |>> List.reduceBack (fun x y -> Seq (x,y)) <?> "Seq"
     do saref := choice [SSeqParse; SBParse]
 
-    let SITEParse = unop pif BTermParse .>*>. unop pthen (cbracket SAParse) .>*>. unop pelse (cbracket SAParse) |>> (fun ((x,y),z) -> ITE (x,y,z)) <?> "If-then-else"
-    let SITParse = unop pif BTermParse .>*>. unop pthen (cbracket SAParse) |>> (fun (x,y) -> ITE (x,y,Skip)) <?> "If-then"
-    let SWDParse = unop pwhile BTermParse .>*>. unop pdo (cbracket SCParse) |>> While <?> "While-do"
-    do sbref := choice [SITEParse; SITParse; SWDParse; SCParse]
+    let SITEParse = unop pif (parenthesise BTermParse) .>*>. unop pthen (cbracket SAParse) .>*>. opt (unop pelse (cbracket SAParse)) |>> (fun ((x,y),zO) -> Option.map (fun z -> ITE (x,y,z)) zO |> Option.defaultValue (ITE (x,y,Skip))) <?> "If-then-(else)"
+    let SWDParse = unop pwhile (parenthesise BTermParse) .>*>. unop pdo (cbracket SCParse) |>> While <?> "While-do"
+    do sbref := choice [SITEParse; SWDParse; SCParse]
 
     let SDecParse = pdeclare >>. spaces1 >>. pid  |>> Declare <?> "Declare"
     let SAssParse = binop (pstring ":=") pid TermParse |>> Ass <?> "Assign"
     let SBraParse = cbracket SAParse
     let SParParse = parenthesise SAParse
     do scref := choice [SDecParse; SAssParse; SBraParse; SParParse]
+
 
 
     let AexpParse = TermParse 
