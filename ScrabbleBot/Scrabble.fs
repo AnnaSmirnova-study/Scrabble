@@ -3,33 +3,10 @@
 open System.Linq
 open ScrabbleUtil
 open ScrabbleUtil.ServerCommunication
-
 open System.IO
 
 open ScrabbleUtil.DebugPrint
 
-// The RegEx module is only used to parse human input. It is not used for the final product.
-(*
-module RegEx =
-    open System.Text.RegularExpressions
-
-    let (|Regex|_|) pattern input =
-        let m = Regex.Match(input, pattern)
-        if m.Success then Some(List.tail [ for g in m.Groups -> g.Value ])
-        else None
-
-    let parseMove ts =
-        let pattern = @"([-]?[0-9]+[ ])([-]?[0-9]+[ ])([0-9]+)([A-Z]{1})([0-9]+)[ ]?" 
-        Regex.Matches(ts, pattern) |>
-        Seq.cast<Match> |> 
-        Seq.map 
-            (fun t -> 
-                match t.Value with
-                | Regex pattern [x; y; id; c; p] ->
-                    ((x |> int, y |> int), (id |> uint32, (c |> char, p |> int)))
-                | _ -> failwith "Failed (should never happen)") |>
-        Seq.toList
-        *)
 
 module Print =
     let printHand pieces hand =
@@ -86,9 +63,6 @@ module State =
         // To avoid eternal loop if all are false
         if Map.forall (fun _ v -> not v) st.players then 0u
         else t (st.playerTurn+1u)
-    
-    // just check is this word exist or not
-    let checkWord word = Dictionary.lookup (List.fold (fun acc (c,v) -> acc + c.ToString()) "" word)
 
 
 module internal algorithm =
@@ -123,22 +97,21 @@ module internal algorithm =
             | StateMonad.Success acc' -> acc'
             | _ -> acc) 0 f
 
+    // Given two (points,move) option, returns the one with the greatest amount of points
+    let greatest a b =
+        match a with
+        | Some (p,m) -> 
+            match b with
+            | Some (p',m') -> if p > p' then Some (p,m) else Some (p',m')
+            | None -> Some (p,m)
+        | None -> b
 
     // Add squareFun from a given square to the map of squareFuns
     let addSF pos (sqr:Parser.square) sqrs = Map.fold (fun acc k v -> Map.add pos (k,v) acc) sqrs sqr
 
 
     let findWord hand (st:State.state) =
-        // Given two (points,move) option, returns the one with the greatest amount of points
-        let greatest a b =
-            match a with
-            | Some (p,m) -> 
-                match b with
-                | Some (p',m') -> if p > p' then Some (p,m) else Some (p',m')
-                | None -> Some (p,m)
-            | None -> b
 
-        
         let rec tryNextLetter squares dictStep hand pos word sqrs move =
             match squares with
             // Square is valid and not free
@@ -246,7 +219,8 @@ module internal algorithm =
             let rec getSquaresBefore coords' next' count' pos acc =
                 match checkSquareTile coords' boardSquares with
                 | Some (Some sqr, None) -> if (count' > 0) && (sidesFree coords') then getSquaresBefore (next' coords') next' (count'-1) (pos-1) (((mkWS coords' sqr pos false),None)::acc) else acc
-                | _ -> acc.Tail
+                | Some (Some _, Some _) -> acc.Tail
+                | _ -> acc
             (List.rev (getSquaresBefore (back coords) back count -1 []), List.rev (getSquaresAfter coords forward count 0 []))
 
 
@@ -264,45 +238,40 @@ module internal algorithm =
 
         let tryH coords = 
             match checkSquareTile (left coords) st.board.squares with 
-            | Some (Some _, None) -> tryFromNextSquare (squaresH coords) st.dict hand None
-            | _ -> None
+            | Some (Some _, Some _) -> None
+            | _ -> tryFromNextSquare (squaresH coords) st.dict hand None
         let tryV coords =
             match checkSquareTile (up coords) st.board.squares with 
-            | Some (Some _, None) -> tryFromNextSquare (squaresV coords) st.dict hand None
-            | _ -> None
+            | Some (Some _, Some _) -> None
+            | _ -> tryFromNextSquare (squaresV coords) st.dict hand None
 
         if Map.isEmpty st.tiles then greatest (tryH st.board.center) (tryV st.board.center)
         else
-            Map.fold (fun mv coords _ ->
-                greatest (tryH coords) (tryV coords) |> greatest mv
-            ) None st.tiles
+            let moves = 
+                [for (coords,_) in Map.toSeq st.tiles do yield async { return greatest (tryH coords) (tryV coords) }] |>
+                Async.Parallel |>
+                Async.RunSynchronously
 
+            Array.reduce (fun a b -> greatest a b) moves
 
 
 module Scrabble =
-    open System.Threading
 
     let playGame cstream pieces (st : State.state) =
             
-
         let rec aux (st : State.state) =
-            Print.printHand pieces (State.hand st)
+            // Print.printHand pieces (State.hand st)
 
-            // remove the force print when you move on from manual input (or when you have learnt the format)
             if st.playerTurn = st.playerNumber then
-                // forcePrint "Input move (format '(<x-coordinate> <y-coordinate>
-                // <piece id><character><point-value> )*', note the absence of space between the last inputs)\n\n"
-                
+
                 // Waits for input before startung turn (just press enter)
-                //let input =  System.Console.ReadLine()
-                    //let move = RegEx.parseMove input
+                // let input =  System.Console.ReadLine()
 
                 let hand' = MultiSet.fold (fun acc id count -> 
                                 match Map.tryFind id pieces with
                                 | Some (t: tile) -> MultiSet.add (id, t) count acc
                                 | None -> acc
                                 ) MultiSet.empty st.hand
-            
 
                 let m = algorithm.findWord hand' st
                 
@@ -319,7 +288,6 @@ module Scrabble =
             else ()
 
             let msg = recv cstream
-            //debugPrint (sprintf "Player %d <- Server:\n%A\n" (State.playerNumber st) move) // keep the debug lines. They are useful.
 
             match msg with
             | RCM (CMPlaySuccess(ms, points, newPieces)) ->
